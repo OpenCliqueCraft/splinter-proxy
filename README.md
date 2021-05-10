@@ -41,5 +41,5 @@ Check out the [prototype](https://github.com/OpenCliqueCraft/splinter-prototype)
 Contact:
 
 - Discord: [Leap#0765](https://gardna.net/discord)
-- Discord: regenerativep#4103
+- Discord: [regenerativep#4103](https://discord.com/users/198652932802084864)
 
