@@ -10,13 +10,13 @@ use std::{
         SocketAddr,
         TcpListener,
         TcpStream,
-        ToSocketAddrs
+        ToSocketAddrs,
     },
     sync::{
         Arc,
-        RwLock
+        RwLock,
     },
-    thread
+    thread,
 };
 
 use craftio_rs::{
@@ -24,24 +24,23 @@ use craftio_rs::{
     CraftIo,
     CraftSyncReader,
     CraftSyncWriter,
-    CraftTcpConnection
+    CraftTcpConnection,
 };
-
 use mcproto_rs::{
     protocol::{
         PacketDirection,
         RawPacket,
-        State
+        State,
     },
     status::{
         StatusPlayersSpec,
         StatusSpec,
-        StatusVersionSpec
+        StatusVersionSpec,
     },
     types::{
         BaseComponent,
         Chat,
-        TextComponent
+        TextComponent,
     },
     v1_16_3::{
         HandshakeNextState,
@@ -50,17 +49,16 @@ use mcproto_rs::{
         Packet753 as PacketLatest,
         RawPacket753 as RawPacketLatest,
         StatusPongSpec,
-        StatusResponseSpec
-    }
+        StatusResponseSpec,
+    },
 };
-
 use simplelog::{
     ColorChoice,
     CombinedLogger,
     Config,
     LevelFilter,
     TermLogger,
-    TerminalMode
+    TerminalMode,
 };
 
 const PROTOCOL_VERSION: i32 = 753;
@@ -92,7 +90,7 @@ fn main() -> Result<(), ()> {
         LevelFilter::Trace,
         Config::default(),
         TerminalMode::Mixed,
-        ColorChoice::Auto
+        ColorChoice::Auto,
     )])
     .expect("Logger failed to initialize");
     info!("Starting Splinter proxy");
@@ -125,7 +123,7 @@ fn accept_loop(addr: impl ToSocketAddrs) -> Result<(), ()> {
         let mut conn = match CraftConnection::from_std_with_state(
             stream,
             PacketDirection::ServerBound,
-            State::Handshaking
+            State::Handshaking,
         ) {
             Ok(conn) => conn,
             Err(e) => {
@@ -147,7 +145,7 @@ fn accept_loop(addr: impl ToSocketAddrs) -> Result<(), ()> {
                         );
                         match handshake.next_state {
                             HandshakeNextState::Status => handle_status(conn, &peeraddr),
-                            HandshakeNextState::Login => handle_login(conn, &peeraddr)
+                            HandshakeNextState::Login => handle_login(conn, &peeraddr),
                         }
                     }
                     Err(e) => {
@@ -169,11 +167,11 @@ fn accept_loop(addr: impl ToSocketAddrs) -> Result<(), ()> {
 
 fn handle_status(
     mut conn: CraftConnection<BufReader<TcpStream>, TcpStream>,
-    peeraddr: &SocketAddr
+    peeraddr: &SocketAddr,
 ) {
     conn.set_state(State::Status);
     match conn.write_packet(PacketLatest::StatusResponse(StatusResponseSpec {
-        response: SERVER_STATUS.clone()
+        response: SERVER_STATUS.clone(),
     })) {
         Err(e) => return error!("Failed to write packet to {}: {}", peeraddr, e),
         Ok(()) => {}
@@ -184,10 +182,10 @@ fn handle_status(
                 Ok(ping) => {
                     debug!("Got ping {} from {}", ping.payload, peeraddr);
                     match conn.write_packet(PacketLatest::StatusPong(StatusPongSpec {
-                        payload: ping.payload
+                        payload: ping.payload,
                     })) {
                         Ok(()) => debug!("Sent pong back to {}", peeraddr),
-                        Err(e) => error!("Failed to send pong back to {}: {}", peeraddr, e)
+                        Err(e) => error!("Failed to send pong back to {}: {}", peeraddr, e),
                     }
                 }
                 Err(e) => {
@@ -201,7 +199,7 @@ fn handle_status(
                 info!("Connection with {} closed", peeraddr);
                 break;
             }
-            Err(e) => error!("Error reading packet from {}: {}", peeraddr, e)
+            Err(e) => error!("Error reading packet from {}: {}", peeraddr, e),
         }
     }
 }
@@ -232,7 +230,7 @@ fn handle_login(mut conn: CraftConnection<BufReader<TcpStream>, TcpStream>, peer
                     peeraddr
                 )
             }
-            Err(e) => return error!("Error reading packet from {}: {}", peeraddr, e)
+            Err(e) => return error!("Error reading packet from {}: {}", peeraddr, e),
         };
     }
     let name = logindata.name;
@@ -259,7 +257,7 @@ fn handle_login(mut conn: CraftConnection<BufReader<TcpStream>, TcpStream>, peer
                         server_addr, name, e
                     )
                 }
-            }
+            },
         ),
         None => {
             return error!(
@@ -272,7 +270,7 @@ fn handle_login(mut conn: CraftConnection<BufReader<TcpStream>, TcpStream>, peer
         version: PROTOCOL_VERSION.into(),
         server_address: server_ip.into(),
         server_port: server_port,
-        next_state: HandshakeNextState::Login
+        next_state: HandshakeNextState::Login,
     })) {
         Ok(()) => debug!("Sent handshake to {} for {}", server_addr, name),
         Err(e) => {
@@ -284,7 +282,7 @@ fn handle_login(mut conn: CraftConnection<BufReader<TcpStream>, TcpStream>, peer
     }
     client_conn.set_state(State::Login);
     match client_conn.write_packet(PacketLatest::LoginStart(LoginStartSpec {
-        name: name.clone()
+        name: name.clone(),
     })) {
         Ok(()) => debug!("Sent login to {} for {}", server_addr, name),
         Err(e) => {
@@ -301,7 +299,7 @@ fn handle_login(mut conn: CraftConnection<BufReader<TcpStream>, TcpStream>, peer
                 Ok(()) => {
                     trace!("Relaying login packet to client for {}", name)
                 }
-                Err(e) => return error!("Failed to relay login packet to client {}: {}", name, e)
+                Err(e) => return error!("Failed to relay login packet to client {}: {}", name, e),
             }
             client_conn.set_state(State::Play);
             conn.set_state(State::Play);
@@ -318,7 +316,7 @@ fn handle_login(mut conn: CraftConnection<BufReader<TcpStream>, TcpStream>, peer
                 name
             )
         }
-        Err(e) => return error!("Failed to read packet from client for {}: {}", name, e)
+        Err(e) => return error!("Failed to read packet from client for {}: {}", name, e),
     }
     let (mut server_reader, mut server_writer) = client_conn.into_split(); // proxy's connection to the server
     let (mut client_reader, mut client_writer) = conn.into_split(); // proxy's connection to the client
@@ -335,7 +333,7 @@ fn handle_login(mut conn: CraftConnection<BufReader<TcpStream>, TcpStream>, peer
                         Err(e) => error!(
                             "Failed to relay packet client to server for {}: {}",
                             name, e
-                        )
+                        ),
                     },
                     Ok(None) => {
                         info!("Client connection closed for {}", name);
@@ -361,7 +359,7 @@ fn handle_login(mut conn: CraftConnection<BufReader<TcpStream>, TcpStream>, peer
                     Err(e) => error!(
                         "Failed to relay packet server to client for {}: {}",
                         name, e
-                    )
+                    ),
                 }
             }
             Ok(None) => {
