@@ -1,0 +1,7 @@
+hard_tabs = false
+imports_layout = "Vertical"
+max_width = 100
+normalize_comments = true
+struct_lit_single_line = false
+tab_spaces = 4
+trailing_comma = "Never"
