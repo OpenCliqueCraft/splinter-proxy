@@ -144,24 +144,25 @@ fn main() {
     let packet_map: Arc<RwLock<PacketMap>> = Arc::new(RwLock::new(HashMap::new()));
     {
         let mut map = packet_map.write().unwrap();
-        map.insert(
-            PacketLatestKind::PlayBlockChange,
-            Arc::new(|raw_packet: RawPacketLatest| {
-                let packet = match raw_packet.deserialize() {
-                    Ok(packet) => packet,
-                    Err(e) => {
-                        error!("Failed to deserialize packet: {}", e);
-                        return MapAction::None;
-                    }
-                };
-                if let PacketLatest::PlayBlockChange(mut data) = packet {
-                    data.block_id = 5.into();
-                    MapAction::Client(PacketLatest::PlayBlockChange(data))
-                } else {
-                    MapAction::Client(packet)
-                }
-            }),
-        );
+
+        // map.insert(
+        //    PacketLatestKind::PlayBlockChange,
+        //    Arc::new(|raw_packet: RawPacketLatest| {
+        //        let packet = match raw_packet.deserialize() {
+        //            Ok(packet) => packet,
+        //            Err(e) => {
+        //                error!("Failed to deserialize packet: {}", e);
+        //                return MapAction::None;
+        //            }
+        //        };
+        //        if let PacketLatest::PlayBlockChange(mut data) = packet {
+        //            data.block_id = 5.into();
+        //            MapAction::Client(PacketLatest::PlayBlockChange(data))
+        //        } else {
+        //            MapAction::Client(packet)
+        //        }
+        //    }),
+        //);
     }
     let config = get_config("./config.ron");
     listen_for_clients(config, packet_map);
