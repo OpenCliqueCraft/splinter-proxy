@@ -1,17 +1,11 @@
-pub type SplinterCraftConnection = CraftConnection<BufReader<TcpStream>, TcpStream>;
-
 use std::{
-    io::BufReader,
-    net::{
-        SocketAddr,
-        TcpStream,
-    },
+    net::SocketAddr,
     sync::Arc,
 };
 
 use craftio_rs::{
-    CraftConnection,
     CraftSyncWriter,
+    CraftTcpConnection,
 };
 use mcproto_rs::v1_16_3::{
     Packet753 as PacketLatest,
@@ -21,18 +15,18 @@ use mcproto_rs::v1_16_3::{
 use crate::config::SplinterProxyConfiguration;
 
 pub struct SplinterClientConnection {
-    pub craft_conn: SplinterCraftConnection,
+    pub craft_conn: CraftTcpConnection,
     pub sock_addr: SocketAddr,
     pub config: Arc<SplinterProxyConfiguration>,
 }
 
 pub struct SplinterServerConnection {
-    pub craft_conn: SplinterCraftConnection,
+    pub craft_conn: CraftTcpConnection,
     pub sock_addr: SocketAddr,
 }
 
 pub trait HasCraftConn {
-    fn craft_conn(&mut self) -> &mut SplinterCraftConnection;
+    fn craft_conn(&mut self) -> &mut CraftTcpConnection;
     fn sock_addr(&self) -> SocketAddr;
 
     fn write_packet(&mut self, packet: PacketLatest) {
@@ -51,7 +45,7 @@ pub trait HasCraftConn {
 }
 
 impl HasCraftConn for SplinterClientConnection {
-    fn craft_conn(&mut self) -> &mut SplinterCraftConnection {
+    fn craft_conn(&mut self) -> &mut CraftTcpConnection {
         &mut self.craft_conn
     }
 
@@ -61,7 +55,7 @@ impl HasCraftConn for SplinterClientConnection {
 }
 
 impl HasCraftConn for SplinterServerConnection {
-    fn craft_conn(&mut self) -> &mut SplinterCraftConnection {
+    fn craft_conn(&mut self) -> &mut CraftTcpConnection {
         &mut self.craft_conn
     }
 
