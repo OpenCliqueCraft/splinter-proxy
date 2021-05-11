@@ -12,6 +12,7 @@ use std::{
         TcpStream,
         ToSocketAddrs,
     },
+    path::Path,
     sync::{
         Arc,
         RwLock,
@@ -61,29 +62,14 @@ use simplelog::{
     TerminalMode,
 };
 
-const PROTOCOL_VERSION: i32 = 753;
-const GAME_VERSION: &'static str = "1.16.3";
-const DEFAULT_ADDRESS: &'static str = "127.0.0.1:25565";
-const DEFAULT_SERVER_ADDRESS: &'static str = "127.0.0.1:25400";
+mod config;
+use crate::config::{
+    ConfigLoadError,
+    ConfigSaveError,
+    SplinterProxyConfiguration,
+};
 
-lazy_static! {
-    static ref SERVER_STATUS: StatusSpec = StatusSpec {
-        version: Some(StatusVersionSpec {
-            name: GAME_VERSION.into(),
-            protocol: PROTOCOL_VERSION
-        }),
-        players: StatusPlayersSpec {
-            max: 1,
-            online: 0,
-            sample: vec!()
-        },
-        description: Chat::Text(TextComponent {
-            text: "Splinter Proxy".into(),
-            base: BaseComponent::default()
-        }),
-        favicon: None
-    };
-}
+const CONFIG_PATH: &'static str = "./config.ron";
 
 fn main() -> Result<(), ()> {
     CombinedLogger::init(vec![TermLogger::new(
@@ -94,11 +80,52 @@ fn main() -> Result<(), ()> {
     )])
     .expect("Logger failed to initialize");
     info!("Starting Splinter proxy");
-    let addr = DEFAULT_ADDRESS;
-    accept_loop(addr)
+    let config = match SplinterProxyConfiguration::load(Path::new(CONFIG_PATH)) {
+        Ok(config) => {
+            info!("Config loaded from {}", CONFIG_PATH);
+            config
+        }
+        Err(ConfigLoadError::NoFile) => {
+            warn!(
+                "No config file found at {}. Creating a new one from defaults",
+                CONFIG_PATH
+            );
+            let config = SplinterProxyConfiguration::default();
+            match config.save(Path::new(CONFIG_PATH)) {
+                Ok(()) => {}
+                Err(ConfigSaveError::Create(e)) => {
+                    error!("Failed to create file at {}: {}", CONFIG_PATH, e);
+                }
+                Err(ConfigSaveError::Write(e)) => {
+                    error!("Failed to write to {}: {}", CONFIG_PATH, e);
+                }
+            }
+            config
+        }
+        Err(ConfigLoadError::Io(e)) => {
+            error!(
+                "Failed to read config file at {}: {} Using default settings",
+                CONFIG_PATH, e
+            );
+            SplinterProxyConfiguration::default()
+        }
+        Err(ConfigLoadError::De(e)) => {
+            error!(
+                "Failure to deserialize config file at {}: {}. Using default settings",
+                CONFIG_PATH, e
+            );
+            SplinterProxyConfiguration::default()
+        }
+    };
+    let config = Arc::new(RwLock::new(config));
+    let addr = (*config.read().unwrap()).bind_address.clone();
+    accept_loop(addr, config.clone())
 }
 
-fn accept_loop(addr: impl ToSocketAddrs) -> Result<(), ()> {
+fn accept_loop(
+    addr: impl ToSocketAddrs,
+    config: Arc<RwLock<SplinterProxyConfiguration>>,
+) -> Result<(), ()> {
     let listener = match TcpListener::bind(addr) {
         Ok(listener) => listener,
         Err(e) => {
@@ -131,6 +158,7 @@ fn accept_loop(addr: impl ToSocketAddrs) -> Result<(), ()> {
                 continue;
             }
         };
+        let config = config.clone();
         thread::spawn(move || match conn.read_raw_packet::<RawPacketLatest>() {
             Ok(Some(RawPacketLatest::Handshake(handshake_body))) => {
                 match handshake_body.deserialize() {
@@ -144,8 +172,12 @@ fn accept_loop(addr: impl ToSocketAddrs) -> Result<(), ()> {
                             handshake.next_state
                         );
                         match handshake.next_state {
-                            HandshakeNextState::Status => handle_status(conn, &peeraddr),
-                            HandshakeNextState::Login => handle_login(conn, &peeraddr),
+                            HandshakeNextState::Status => {
+                                handle_status(conn, &peeraddr, config.clone())
+                            }
+                            HandshakeNextState::Login => {
+                                handle_login(conn, &peeraddr, config.clone())
+                            }
                         }
                     }
                     Err(e) => {
@@ -168,10 +200,11 @@ fn accept_loop(addr: impl ToSocketAddrs) -> Result<(), ()> {
 fn handle_status(
     mut conn: CraftConnection<BufReader<TcpStream>, TcpStream>,
     peeraddr: &SocketAddr,
+    config: Arc<RwLock<SplinterProxyConfiguration>>,
 ) {
     conn.set_state(State::Status);
     match conn.write_packet(PacketLatest::StatusResponse(StatusResponseSpec {
-        response: SERVER_STATUS.clone(),
+        response: (*config.read().unwrap()).server_status(None), // TODO: player count
     })) {
         Err(e) => return error!("Failed to write packet to {}: {}", peeraddr, e),
         Ok(()) => {}
@@ -204,7 +237,11 @@ fn handle_status(
     }
 }
 
-fn handle_login(mut conn: CraftConnection<BufReader<TcpStream>, TcpStream>, peeraddr: &SocketAddr) {
+fn handle_login(
+    mut conn: CraftConnection<BufReader<TcpStream>, TcpStream>,
+    peeraddr: &SocketAddr,
+    config: Arc<RwLock<SplinterProxyConfiguration>>,
+) {
     conn.set_state(State::Login);
     let logindata;
     loop {
@@ -236,8 +273,8 @@ fn handle_login(mut conn: CraftConnection<BufReader<TcpStream>, TcpStream>, peer
     let name = logindata.name;
     info!("\"{}\" is attempting to login from {}", name, peeraddr);
     debug!("Connecting \"{}\" to server", name);
-    let server_addr = DEFAULT_SERVER_ADDRESS;
-    let mut client_conn = match CraftTcpConnection::connect_server_std(server_addr) {
+    let server_addr = (*config.read().unwrap()).server_address.clone();
+    let mut client_conn = match CraftTcpConnection::connect_server_std(server_addr.as_str()) {
         Ok(conn) => conn,
         Err(e) => {
             return error!(
@@ -267,7 +304,7 @@ fn handle_login(mut conn: CraftConnection<BufReader<TcpStream>, TcpStream>, peer
         }
     };
     match client_conn.write_packet(PacketLatest::Handshake(HandshakeSpec {
-        version: PROTOCOL_VERSION.into(),
+        version: (*config.read().unwrap()).protocol_version.into(),
         server_address: server_ip.into(),
         server_port: server_port,
         next_state: HandshakeNextState::Login,
