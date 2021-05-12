@@ -139,24 +139,24 @@ fn main() {
     info!("Starting Splinter proxy");
 
     let mut map: PacketMap = HashMap::new();
-    map.insert(
-        PacketLatestKind::PlayBlockChange,
-        Box::new(|raw_packet: RawPacketLatest| {
-            let packet = match raw_packet.deserialize() {
-                Ok(packet) => packet,
-                Err(e) => {
-                    error!("Failed to deserialize packet: {}", e);
-                    return MapAction::None;
-                }
-            };
-            if let PacketLatest::PlayBlockChange(mut data) = packet {
-                data.block_id = 5.into();
-                MapAction::Client(PacketLatest::PlayBlockChange(data))
-            } else {
-                MapAction::Client(packet)
-            }
-        }),
-    );
+    // map.insert(
+    //    PacketLatestKind::PlayBlockChange,
+    //    Box::new(|raw_packet: RawPacketLatest| {
+    //        let packet = match raw_packet.deserialize() {
+    //            Ok(packet) => packet,
+    //            Err(e) => {
+    //                error!("Failed to deserialize packet: {}", e);
+    //                return MapAction::None;
+    //            }
+    //        };
+    //        if let PacketLatest::PlayBlockChange(mut data) = packet {
+    //            data.block_id = 5.into();
+    //            MapAction::Client(PacketLatest::PlayBlockChange(data))
+    //        } else {
+    //            MapAction::Client(packet)
+    //        }
+    //    }),
+    //);
 
     let packet_map: Arc<PacketMap> = Arc::new(map);
     let config = get_config("./config.ron");
@@ -378,8 +378,8 @@ fn handle_login(mut client: SplinterClientConnection, packet_map: Arc<PacketMap>
         Err(e) => return error!("Failed to read packet from client for {}: {}", name, e),
     }
 
-    let (mut server_reader, mut server_writer) = server.craft_conn.into_split(); // proxy's connection to the server
-    let (mut client_reader, mut client_writer) = client.craft_conn.into_split(); // proxy's connection to the client
+    let (server_reader, server_writer) = server.craft_conn.into_split(); // proxy's connection to the server
+    let (client_reader, client_writer) = client.craft_conn.into_split(); // proxy's connection to the client
     let (server_writer_sender, server_writer_receiver) = mpsc::channel::<EitherPacket>();
     let (client_writer_sender, client_writer_receiver) = mpsc::channel::<EitherPacket>();
     let is_alive_arc = Arc::new(RwLock::new(true));
