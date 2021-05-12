@@ -22,8 +22,8 @@ pub enum MapAction<'a> {
     None,
 }
 
-pub type PacketMap =
-    HashMap<PacketLatestKind, Arc<dyn Sync + Send + Fn(RawPacketLatest) -> MapAction>>;
+pub type PacketMapFn = Box<dyn Sync + Send + Fn(RawPacketLatest) -> MapAction>;
+pub type PacketMap = HashMap<PacketLatestKind, PacketMapFn>;
 
 pub fn process_raw_packet<'a>(
     map: &'a PacketMap,
