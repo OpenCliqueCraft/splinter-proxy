@@ -43,6 +43,7 @@ pub struct SplinterProxyConfiguration {
     pub bind_address: String,
     pub max_players: Option<u32>,
     pub status: SplinterProxyStatus,
+    pub compression_threshold: Option<i32>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -61,6 +62,7 @@ impl Default for SplinterProxyConfiguration {
             bind_address: "127.0.0.1:25565".into(),
             max_players: None,
             status: SplinterProxyStatus::default(),
+            compression_threshold: Some(256),
         }
     }
 }
