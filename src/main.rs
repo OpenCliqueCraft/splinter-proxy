@@ -44,6 +44,7 @@ use mcproto_rs::{
     v1_16_3::{
         HandshakeNextState,
         HandshakeSpec,
+        LoginSetCompressionSpec,
         LoginStartSpec,
         Packet753 as PacketLatest,
         Packet753Kind as PacketLatestKind,
@@ -348,17 +349,59 @@ fn handle_login(mut client: SplinterClientConnection, packet_map: Arc<PacketMap>
     server.write_packet(PacketLatest::LoginStart(LoginStartSpec {
         name: name.clone(),
     }));
+    // look for potential compression packet
+    let next_packet = match server.craft_conn.read_raw_packet::<RawPacketLatest>() {
+        Ok(Some(RawPacketLatest::LoginSetCompression(body))) => {
+            let threshold = match body.deserialize() {
+                Ok(LoginSetCompressionSpec {
+                    threshold,
+                }) => i32::from(threshold),
+                Err(e) => {
+                    return error!(
+                        "Failed to deserialize compression set packet for {}: {}",
+                        name, e
+                    )
+                }
+            };
+            debug!(
+                "Got compression setting from server for {}: {}",
+                name, threshold
+            );
+            server
+                .craft_conn
+                .set_compression_threshold(if threshold > 0 { Some(threshold) } else { None });
+            server.craft_conn.read_raw_packet::<RawPacketLatest>()
+        }
+        other => other,
+    };
     // read login success
-    match server.craft_conn.read_raw_packet::<RawPacketLatest>() {
+    match next_packet {
         Ok(Some(RawPacketLatest::LoginSuccess(body))) => {
+            if let Some(threshold) = client.config.compression_threshold {
+                match client
+                    .craft_conn
+                    .write_packet(PacketLatest::LoginSetCompression(LoginSetCompressionSpec {
+                        threshold: threshold.into(),
+                    })) {
+                    Ok(()) => {
+                        debug!("Sent set compression to {} of {}", name, threshold);
+                        client
+                            .craft_conn
+                            .set_compression_threshold(client.config.compression_threshold);
+                    }
+                    Err(e) => {
+                        return error!("Failed to send set compression packet to {}: {}", name, e)
+                    }
+                }
+            }
             match client
                 .craft_conn
                 .write_raw_packet(RawPacketLatest::LoginSuccess(body))
             {
                 Ok(()) => {
-                    trace!("Relaying login packet to client for {}", name)
+                    debug!("Relaying login packet to server for {}", name)
                 }
-                Err(e) => return error!("Failed to relay login packet to client {}: {}", name, e),
+                Err(e) => return error!("Failed to relay login packet to server {}: {}", name, e),
             }
             client.craft_conn.set_state(State::Play);
             server.craft_conn.set_state(State::Play);
@@ -371,11 +414,11 @@ fn handle_login(mut client: SplinterClientConnection, packet_map: Arc<PacketMap>
         }
         Ok(None) => {
             return info!(
-                "Client connection closed before receiving login packet {}",
+                "Server connection closed before receiving login packet {}",
                 name
             )
         }
-        Err(e) => return error!("Failed to read packet from client for {}: {}", name, e),
+        Err(e) => return error!("Failed to read packet from server for {}: {}", name, e),
     }
 
     let (server_reader, server_writer) = server.craft_conn.into_split(); // proxy's connection to the server

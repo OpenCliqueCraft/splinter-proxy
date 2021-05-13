@@ -7,7 +7,7 @@ edition = "2018"
 
 [dependencies]
 mcproto-rs = "0.2.0"
-craftio-rs = "0.1.0"
+craftio-rs = { version = "0.1.0", features = ["compression"] }
 rand = "0.8.3"
 lazy_static = "1.4.0"
 log = "0.4.14"
