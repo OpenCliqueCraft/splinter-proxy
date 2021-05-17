@@ -103,27 +103,29 @@ pub fn handle_reader(
 ) {
     while *is_alive.read().unwrap() {
         match reader.read_raw_packet::<RawPacketLatest>() {
-            Ok(Some(raw_packet)) => match process_raw_packet(&*packet_map, raw_packet) {
-                MapAction::Relay(raw_packet) => {
-                    if let Err(_) = writer_sender.send(EitherPacket::Raw(
-                        raw_packet.id(),
-                        raw_packet.data().to_owned(),
-                    )) {
-                        break;
+            Ok(Some(raw_packet)) => {
+                match process_raw_packet(state.clone(), &*packet_map, raw_packet) {
+                    MapAction::Relay(raw_packet) => {
+                        if let Err(_) = writer_sender.send(EitherPacket::Raw(
+                            raw_packet.id(),
+                            raw_packet.data().to_owned(),
+                        )) {
+                            break;
+                        }
                     }
-                }
-                MapAction::Server(packet) => {
-                    if let Err(_) = server_writer_sender.send(EitherPacket::Normal(packet)) {
-                        break;
+                    MapAction::Server(packet) => {
+                        if let Err(_) = server_writer_sender.send(EitherPacket::Normal(packet)) {
+                            break;
+                        }
                     }
-                }
-                MapAction::Client(packet) => {
-                    if let Err(_) = client_writer_sender.send(EitherPacket::Normal(packet)) {
-                        break;
+                    MapAction::Client(packet) => {
+                        if let Err(_) = client_writer_sender.send(EitherPacket::Normal(packet)) {
+                            break;
+                        }
                     }
+                    MapAction::None => {}
                 }
-                MapAction::None => {}
-            },
+            }
             Ok(None) => {
                 trace!("One connection closed for {}", client_name);
                 break;

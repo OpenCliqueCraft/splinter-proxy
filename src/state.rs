@@ -11,6 +11,7 @@ use crate::config::SplinterProxyConfiguration;
 pub struct SplinterState {
     pub config: RwLock<SplinterProxyConfiguration>,
     pub player_count: RwLock<u32>,
+    pub id: RwLock<i32>,
 }
 
 impl SplinterState {
@@ -18,6 +19,7 @@ impl SplinterState {
         Arc::new(SplinterState {
             config: RwLock::new(config),
             player_count: RwLock::new(0),
+            id: RwLock::new(0),
         })
     }
 }

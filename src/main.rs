@@ -144,23 +144,31 @@ fn main() {
 
     let mut map: PacketMap = HashMap::new();
     // map.insert(
-    //    PacketLatestKind::PlayBlockChange,
-    //    Box::new(|raw_packet: RawPacketLatest| {
-    //        let packet = match raw_packet.deserialize() {
-    //            Ok(packet) => packet,
-    //            Err(e) => {
-    //                error!("Failed to deserialize packet: {}", e);
-    //                return MapAction::None;
-    //            }
-    //        };
-    //        if let PacketLatest::PlayBlockChange(mut data) = packet {
-    //            data.block_id = 5.into();
-    //            MapAction::Client(PacketLatest::PlayBlockChange(data))
-    //        } else {
-    //            MapAction::Client(packet)
-    //        }
-    //    }),
-    //);
+    //     PacketLatestKind::PlayBlockChange,
+    //     Box::new(|state: Arc<SplinterState>, raw_packet: RawPacketLatest| {
+    //         info!("blockupdate");
+
+    //         let packet = match raw_packet.deserialize() {
+    //             Ok(packet) => packet,
+    //             Err(e) => {
+    //                 error!("Failed to deserialize packet: {}", e);
+    //                 return MapAction::None;
+    //             }
+    //         };
+
+    //         {
+    //             let mut d = state.id.write().unwrap();
+    //             *d += 1;
+    //         }
+
+    //         if let PacketLatest::PlayBlockChange(mut data) = packet {
+    //             data.block_id = (*state.id.read().unwrap()).into();
+    //             MapAction::Client(PacketLatest::PlayBlockChange(data))
+    //         } else {
+    //             MapAction::Client(packet)
+    //         }
+    //     }),
+    // );
 
     let packet_map: Arc<PacketMap> = Arc::new(map);
     let state = SplinterState::new(get_config("./config.ron"));
