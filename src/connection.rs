@@ -36,21 +36,32 @@ use crate::{
     },
 };
 
+/// Data associated with a connection between the proxy and a client
 pub struct SplinterClientConnection {
+    /// Connection to the client
     pub craft_conn: CraftTcpConnection,
+    /// Address of the client
     pub sock_addr: SocketAddr,
+    /// Reference to the proxy's configuration
     pub config: Arc<SplinterProxyConfiguration>,
 }
 
+/// Data associated with a connection between the proxy and a server
 pub struct SplinterServerConnection {
+    /// Conection to the server
     pub craft_conn: CraftTcpConnection,
+    /// Address of the server
     pub sock_addr: SocketAddr,
 }
 
+/// Common types that can be written to with the MC protocol
 pub trait HasCraftConn {
+    /// Gets a mutable reference the connection
     fn craft_conn(&mut self) -> &mut CraftTcpConnection;
+    /// Gets the address
     fn sock_addr(&self) -> SocketAddr;
 
+    /// Writes a packet to the connection
     fn write_packet(&mut self, packet: PacketLatest) {
         match self.craft_conn().write_packet(packet) {
             Err(e) => return error!("Failed to write packet to {}: {}", self.sock_addr(), e),
@@ -58,6 +69,7 @@ pub trait HasCraftConn {
         }
     }
 
+    /// Writes a raw packet to the connection
     fn write_raw_packet(&mut self, packet: RawPacketLatest) {
         match self.craft_conn().write_raw_packet(packet) {
             Err(e) => return error!("Failed to write packet to {}: {}", self.sock_addr(), e),
@@ -86,11 +98,26 @@ impl HasCraftConn for SplinterServerConnection {
     }
 }
 
+/// A packet in the form of either a raw byte array or an unserialized packet
 pub enum EitherPacket {
+    /// An unserialized packet
     Normal(PacketLatest),
+    /// A packet id with a byte array
     Raw(Id, Vec<u8>),
 }
 
+/// Handles reading a connection and deciding what to do with data
+///
+/// `is_alive` is a [`Arc`]<[`RwLock`]<[`bool`]>>. The as long as `is_alive` is true, then the reader
+/// will continue reading. The reader can also turn off `is_alive` itself.
+///
+/// `packet_map` is an [`Arc`]<[`PacketMap`]> so that it can correctly determine what to do with certain packets.
+/// `writer_sender`, `server_writer_sender`, and `client_writer_sender` are [`Sender`]<[`EitherPacket`]>.
+/// `writer_sender` is the sender to wherever the original packet was going, for example if the
+/// packet were original client bound, then `writer_sender` would be a clone of
+/// `client_writer_sender`.
+///
+/// `client_name` is the user name of the client.
 pub fn handle_reader(
     is_alive: Arc<RwLock<bool>>,
     mut reader: impl CraftSyncReader,
@@ -136,6 +163,14 @@ pub fn handle_reader(
     trace!("reader thread closed for {}", client_name);
 }
 
+/// Handles reading a connection and deciding what to do with data
+///
+/// `is_alive` is a [`Arc`]<[`RwLock`]<[`bool`]>>. The as long as `is_alive` is true, then the reader
+/// will continue reading. The reader can also turn off `is_alive` itself.
+///
+/// `client_name` is the user name of the client.
+///
+/// `writer_receiver` is a [`Receiver`]<[`EitherPacket`]> to receive any packets that are sent to this writer.
 pub fn handle_writer(
     is_alive: Arc<RwLock<bool>>,
     client_name: String,

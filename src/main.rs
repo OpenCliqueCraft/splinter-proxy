@@ -87,6 +87,15 @@ use crate::mapping::{
     PacketMap,
 };
 
+/// Loads configuration from the specified .ron file
+///
+/// # Example
+/// ```rust
+/// let config = get_config("./config.ron");
+/// if let Some(threshold) = config.compression_threshold {
+///     info!("compression threshold is {}", threshold);
+/// }
+/// ```
 fn get_config(config_path: &str) -> Arc<SplinterProxyConfiguration> {
     let config = match SplinterProxyConfiguration::load(Path::new(config_path)) {
         Ok(config) => {
@@ -164,6 +173,9 @@ fn main() {
     listen_for_clients(config, packet_map);
 }
 
+/// Listens for incoming connections
+///
+/// This hands control of new connections to a new thread running [`await_handshake`].
 fn listen_for_clients(config: Arc<SplinterProxyConfiguration>, packet_map: Arc<PacketMap>) {
     let listener = match TcpListener::bind(&config.bind_address) {
         Err(e) => {
@@ -208,6 +220,9 @@ fn listen_for_clients(config: Arc<SplinterProxyConfiguration>, packet_map: Arc<P
     }
 }
 
+/// Waits for a handshake from the provided connection
+///
+/// Branches into [`handle_status`] and [`handle_login`] depending on the handshake's next state.
 fn await_handshake(mut conn: SplinterClientConnection, packet_map: Arc<PacketMap>) {
     match conn.craft_conn.read_raw_packet::<RawPacketLatest>() {
         Ok(Some(RawPacketLatest::Handshake(handshake_body))) => {
@@ -244,6 +259,7 @@ fn await_handshake(mut conn: SplinterClientConnection, packet_map: Arc<PacketMap
     }
 }
 
+/// Responds to connection with status response and waits for pings
 fn handle_status(mut conn: SplinterClientConnection) {
     conn.craft_conn.set_state(State::Status);
     conn.write_packet(PacketLatest::StatusResponse(StatusResponseSpec {
@@ -275,6 +291,9 @@ fn handle_status(mut conn: SplinterClientConnection) {
     }
 }
 
+/// Handles login sequence between server and client
+///
+/// After login, packets can be inspected and relayed.
 fn handle_login(mut client: SplinterClientConnection, packet_map: Arc<PacketMap>) {
     client.craft_conn.set_state(State::Login);
     let logindata;
