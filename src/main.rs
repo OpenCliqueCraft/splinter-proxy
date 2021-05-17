@@ -87,7 +87,10 @@ use crate::mapping::{
     PacketMap,
 };
 
-fn get_config(config_path: &str) -> Arc<SplinterProxyConfiguration> {
+mod state;
+use crate::state::SplinterState;
+
+fn get_config(config_path: &str) -> SplinterProxyConfiguration {
     let config = match SplinterProxyConfiguration::load(Path::new(config_path)) {
         Ok(config) => {
             info!("Config loaded from {}", config_path);
@@ -126,7 +129,7 @@ fn get_config(config_path: &str) -> Arc<SplinterProxyConfiguration> {
         }
     };
 
-    Arc::new(config)
+    config
 }
 
 fn main() {
@@ -160,16 +163,17 @@ fn main() {
     //);
 
     let packet_map: Arc<PacketMap> = Arc::new(map);
-    let config = get_config("./config.ron");
-    listen_for_clients(config, packet_map);
+    let state = SplinterState::new(get_config("./config.ron"));
+    listen_for_clients(state, packet_map);
 }
 
-fn listen_for_clients(config: Arc<SplinterProxyConfiguration>, packet_map: Arc<PacketMap>) {
-    let listener = match TcpListener::bind(&config.bind_address) {
+fn listen_for_clients(state: Arc<SplinterState>, packet_map: Arc<PacketMap>) {
+    let listener = match TcpListener::bind(&state.config.read().unwrap().bind_address) {
         Err(e) => {
             return error!(
                 "Failed to bind TCP listener to {}: {}",
-                &config.bind_address, e
+                &state.config.read().unwrap().bind_address,
+                e
             )
         }
         Ok(listener) => listener,
@@ -199,16 +203,20 @@ fn listen_for_clients(config: Arc<SplinterProxyConfiguration>, packet_map: Arc<P
         let conn = SplinterClientConnection {
             craft_conn: craft_conn,
             sock_addr: sock_addr,
-            config: config.clone(),
         };
 
         info!("Got connection from {}", sock_addr);
         let packet_map = packet_map.clone();
-        thread::spawn(move || await_handshake(conn, packet_map));
+        let cloned_state = state.clone();
+        thread::spawn(move || await_handshake(cloned_state, conn, packet_map));
     }
 }
 
-fn await_handshake(mut conn: SplinterClientConnection, packet_map: Arc<PacketMap>) {
+fn await_handshake(
+    state: Arc<SplinterState>,
+    mut conn: SplinterClientConnection,
+    packet_map: Arc<PacketMap>,
+) {
     match conn.craft_conn.read_raw_packet::<RawPacketLatest>() {
         Ok(Some(RawPacketLatest::Handshake(handshake_body))) => {
             match handshake_body.deserialize() {
@@ -222,8 +230,8 @@ fn await_handshake(mut conn: SplinterClientConnection, packet_map: Arc<PacketMap
                         handshake.next_state
                     );
                     match handshake.next_state {
-                        HandshakeNextState::Status => handle_status(conn),
-                        HandshakeNextState::Login => handle_login(conn, packet_map),
+                        HandshakeNextState::Status => handle_status(state, conn),
+                        HandshakeNextState::Login => handle_login(state, conn, packet_map),
                     }
                 }
                 Err(e) => {
@@ -244,10 +252,14 @@ fn await_handshake(mut conn: SplinterClientConnection, packet_map: Arc<PacketMap
     }
 }
 
-fn handle_status(mut conn: SplinterClientConnection) {
+fn handle_status(state: Arc<SplinterState>, mut conn: SplinterClientConnection) {
     conn.craft_conn.set_state(State::Status);
     conn.write_packet(PacketLatest::StatusResponse(StatusResponseSpec {
-        response: conn.config.server_status(None), // TODO: player count
+        response: state
+            .config
+            .read()
+            .unwrap()
+            .server_status(Some(*state.player_count.read().unwrap())), // TODO: player count
     }));
 
     loop {
@@ -275,7 +287,11 @@ fn handle_status(mut conn: SplinterClientConnection) {
     }
 }
 
-fn handle_login(mut client: SplinterClientConnection, packet_map: Arc<PacketMap>) {
+fn handle_login(
+    state: Arc<SplinterState>,
+    mut client: SplinterClientConnection,
+    packet_map: Arc<PacketMap>,
+) {
     client.craft_conn.set_state(State::Login);
     let logindata;
     loop {
@@ -316,14 +332,16 @@ fn handle_login(mut client: SplinterClientConnection, packet_map: Arc<PacketMap>
         name, client.sock_addr
     );
     debug!("Connecting \"{}\" to server", name);
-    let server_addr = client
+    let server_addr = state
         .config
+        .read()
+        .unwrap()
         .server_address
         .as_str()
-        .to_socket_addrs() // yea
+        .to_socket_addrs()
         .unwrap()
         .next()
-        .unwrap();
+        .unwrap(); // yea
     let craft_conn = match CraftTcpConnection::connect_server_std(server_addr) {
         Ok(conn) => conn,
         Err(e) => {
@@ -339,7 +357,7 @@ fn handle_login(mut client: SplinterClientConnection, packet_map: Arc<PacketMap>
     };
 
     server.write_packet(PacketLatest::Handshake(HandshakeSpec {
-        version: client.config.protocol_version.into(),
+        version: state.config.read().unwrap().protocol_version.into(),
         server_address: format!("{}", server_addr.ip()),
         server_port: server_addr.port(),
         next_state: HandshakeNextState::Login,
@@ -377,7 +395,7 @@ fn handle_login(mut client: SplinterClientConnection, packet_map: Arc<PacketMap>
     // read login success
     match next_packet {
         Ok(Some(RawPacketLatest::LoginSuccess(body))) => {
-            if let Some(threshold) = client.config.compression_threshold {
+            if let Some(threshold) = state.config.read().unwrap().compression_threshold {
                 match client
                     .craft_conn
                     .write_packet(PacketLatest::LoginSetCompression(LoginSetCompressionSpec {
@@ -385,9 +403,9 @@ fn handle_login(mut client: SplinterClientConnection, packet_map: Arc<PacketMap>
                     })) {
                     Ok(()) => {
                         debug!("Sent set compression to {} of {}", name, threshold);
-                        client
-                            .craft_conn
-                            .set_compression_threshold(client.config.compression_threshold);
+                        client.craft_conn.set_compression_threshold(
+                            state.config.read().unwrap().compression_threshold,
+                        );
                     }
                     Err(e) => {
                         return error!("Failed to send set compression packet to {}: {}", name, e)
@@ -421,6 +439,11 @@ fn handle_login(mut client: SplinterClientConnection, packet_map: Arc<PacketMap>
         Err(e) => return error!("Failed to read packet from server for {}: {}", name, e),
     }
 
+    {
+        let mut player_count = state.player_count.write().unwrap();
+        *player_count += 1;
+    }
+
     let (server_reader, server_writer) = server.craft_conn.into_split(); // proxy's connection to the server
     let (client_reader, client_writer) = client.craft_conn.into_split(); // proxy's connection to the client
     let (server_writer_sender, server_writer_receiver) = mpsc::channel::<EitherPacket>();
@@ -428,6 +451,7 @@ fn handle_login(mut client: SplinterClientConnection, packet_map: Arc<PacketMap>
     let is_alive_arc = Arc::new(RwLock::new(true));
     // client reader
     {
+        let state = state.clone();
         let packet_map = packet_map.clone();
         let is_alive_arc = is_alive_arc.clone();
         let name = name.clone();
@@ -436,6 +460,7 @@ fn handle_login(mut client: SplinterClientConnection, packet_map: Arc<PacketMap>
         let client_writer_sender = client_writer_sender.clone();
         thread::spawn(move || {
             handle_reader(
+                state,
                 is_alive_arc,
                 client_reader,
                 packet_map,
@@ -449,15 +474,23 @@ fn handle_login(mut client: SplinterClientConnection, packet_map: Arc<PacketMap>
 
     // server writer
     {
+        let state = state.clone();
         let is_alive_arc = is_alive_arc.clone();
         let name = name.clone();
         thread::spawn(move || {
-            handle_writer(is_alive_arc, name, server_writer_receiver, server_writer)
+            handle_writer(
+                state,
+                is_alive_arc,
+                name,
+                server_writer_receiver,
+                server_writer,
+            )
         });
     }
 
     // server reader
     {
+        let state = state.clone();
         let packet_map = packet_map.clone();
         let is_alive_arc = is_alive_arc.clone();
         let name = name.clone();
@@ -466,6 +499,7 @@ fn handle_login(mut client: SplinterClientConnection, packet_map: Arc<PacketMap>
         let client_writer_sender = client_writer_sender.clone();
         thread::spawn(move || {
             handle_reader(
+                state,
                 is_alive_arc,
                 server_reader,
                 packet_map,
@@ -477,7 +511,22 @@ fn handle_login(mut client: SplinterClientConnection, packet_map: Arc<PacketMap>
         });
     }
     // client writer
+    let state = state.clone();
+    let state2 = state.clone();
     let is_alive_arc = is_alive_arc.clone();
     let name = name.clone();
-    thread::spawn(move || handle_writer(is_alive_arc, name, client_writer_receiver, client_writer));
+    thread::spawn(move || {
+        handle_writer(
+            state,
+            is_alive_arc,
+            name,
+            client_writer_receiver,
+            client_writer,
+        );
+
+        {
+            let mut player_count = state2.player_count.write().unwrap();
+            *player_count -= 1;
+        }
+    });
 }

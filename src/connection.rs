@@ -34,12 +34,12 @@ use crate::{
         MapAction,
         PacketMap,
     },
+    state::SplinterState,
 };
 
 pub struct SplinterClientConnection {
     pub craft_conn: CraftTcpConnection,
     pub sock_addr: SocketAddr,
-    pub config: Arc<SplinterProxyConfiguration>,
 }
 
 pub struct SplinterServerConnection {
@@ -92,6 +92,7 @@ pub enum EitherPacket {
 }
 
 pub fn handle_reader(
+    state: Arc<SplinterState>,
     is_alive: Arc<RwLock<bool>>,
     mut reader: impl CraftSyncReader,
     packet_map: Arc<PacketMap>,
@@ -137,6 +138,7 @@ pub fn handle_reader(
 }
 
 pub fn handle_writer(
+    state: Arc<SplinterState>,
     is_alive: Arc<RwLock<bool>>,
     client_name: String,
     writer_receiver: Receiver<EitherPacket>,
