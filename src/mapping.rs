@@ -15,6 +15,8 @@ use mcproto_rs::{
     },
 };
 
+use crate::state::SplinterState;
+
 /// Specifies what to do with a packet
 pub enum MapAction<'a> {
     /// Relay the packet the same direction it was already heading.
@@ -31,7 +33,7 @@ pub enum MapAction<'a> {
 }
 
 /// The function type for packet mapping
-pub type PacketMapFn = Box<dyn Sync + Send + Fn(RawPacketLatest) -> MapAction>;
+pub type PacketMapFn = Box<dyn Sync + Send + Fn(Arc<SplinterState>, RawPacketLatest) -> MapAction>;
 
 /// Packet map type
 pub type PacketMap = HashMap<PacketLatestKind, PacketMapFn>;
@@ -41,11 +43,12 @@ pub type PacketMap = HashMap<PacketLatestKind, PacketMapFn>;
 /// `map` is the [`PacketMap`] to find the corresponding function from. `raw_packet` is the packet
 /// to check against and pass into the function
 pub fn process_raw_packet<'a>(
+    state: Arc<SplinterState>,
     map: &'a PacketMap,
     raw_packet: RawPacketLatest<'a>,
 ) -> MapAction<'a> {
     return match map.get(&raw_packet.kind()) {
-        Some(entry) => entry(raw_packet),
+        Some(entry) => entry(state, raw_packet),
         None => MapAction::Relay::<'a>(raw_packet),
     };
 }
