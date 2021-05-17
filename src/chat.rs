@@ -32,7 +32,7 @@ pub fn init(map: &mut PacketMap) {
                         info!("{}", data.message);
                         match data.message.get(..1) {
                             Some("/") => {
-                                if let Err(e) = client.servers.read().unwrap()[0]
+                                if let Err(e) = client.servers.read().unwrap()[0] // TODO: select the correct server
                                     .writer
                                     .lock()
                                     .unwrap()
