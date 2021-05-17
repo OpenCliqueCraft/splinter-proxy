@@ -34,6 +34,7 @@ use crate::{
         MapAction,
         PacketMap,
     },
+    state::SplinterState,
 };
 
 /// Data associated with a connection between the proxy and a client
@@ -42,8 +43,6 @@ pub struct SplinterClientConnection {
     pub craft_conn: CraftTcpConnection,
     /// Address of the client
     pub sock_addr: SocketAddr,
-    /// Reference to the proxy's configuration
-    pub config: Arc<SplinterProxyConfiguration>,
 }
 
 /// Data associated with a connection between the proxy and a server
@@ -119,6 +118,7 @@ pub enum EitherPacket {
 ///
 /// `client_name` is the user name of the client.
 pub fn handle_reader(
+    state: Arc<SplinterState>,
     is_alive: Arc<RwLock<bool>>,
     mut reader: impl CraftSyncReader,
     packet_map: Arc<PacketMap>,
@@ -129,27 +129,29 @@ pub fn handle_reader(
 ) {
     while *is_alive.read().unwrap() {
         match reader.read_raw_packet::<RawPacketLatest>() {
-            Ok(Some(raw_packet)) => match process_raw_packet(&*packet_map, raw_packet) {
-                MapAction::Relay(raw_packet) => {
-                    if let Err(_) = writer_sender.send(EitherPacket::Raw(
-                        raw_packet.id(),
-                        raw_packet.data().to_owned(),
-                    )) {
-                        break;
+            Ok(Some(raw_packet)) => {
+                match process_raw_packet(state.clone(), &*packet_map, raw_packet) {
+                    MapAction::Relay(raw_packet) => {
+                        if let Err(_) = writer_sender.send(EitherPacket::Raw(
+                            raw_packet.id(),
+                            raw_packet.data().to_owned(),
+                        )) {
+                            break;
+                        }
                     }
-                }
-                MapAction::Server(packet) => {
-                    if let Err(_) = server_writer_sender.send(EitherPacket::Normal(packet)) {
-                        break;
+                    MapAction::Server(packet) => {
+                        if let Err(_) = server_writer_sender.send(EitherPacket::Normal(packet)) {
+                            break;
+                        }
                     }
-                }
-                MapAction::Client(packet) => {
-                    if let Err(_) = client_writer_sender.send(EitherPacket::Normal(packet)) {
-                        break;
+                    MapAction::Client(packet) => {
+                        if let Err(_) = client_writer_sender.send(EitherPacket::Normal(packet)) {
+                            break;
+                        }
                     }
+                    MapAction::None => {}
                 }
-                MapAction::None => {}
-            },
+            }
             Ok(None) => {
                 trace!("One connection closed for {}", client_name);
                 break;
@@ -172,6 +174,7 @@ pub fn handle_reader(
 ///
 /// `writer_receiver` is a [`Receiver`]<[`EitherPacket`]> to receive any packets that are sent to this writer.
 pub fn handle_writer(
+    state: Arc<SplinterState>,
     is_alive: Arc<RwLock<bool>>,
     client_name: String,
     writer_receiver: Receiver<EitherPacket>,
