@@ -20,6 +20,9 @@ use crate::state::{
     SplinterState,
 };
 
+/// The function type for packet mapping
 pub type PacketMapFn =
     Box<dyn Sync + Send + Fn(&SplinterClient, &SplinterState, &RawPacketLatest) -> bool>;
+
+/// Packet map type
 pub type PacketMap = HashMap<PacketLatestKind, PacketMapFn>;
