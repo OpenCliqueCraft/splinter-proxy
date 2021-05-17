@@ -20,6 +20,7 @@ use std::{
             Sender,
         },
         Arc,
+        Mutex,
         RwLock,
     },
     thread,
@@ -41,6 +42,7 @@ use mcproto_rs::{
         RawPacket,
         State,
     },
+    uuid::UUID4,
     v1_16_3::{
         HandshakeNextState,
         HandshakeSpec,
@@ -66,8 +68,6 @@ use simplelog::{
 mod connection;
 use crate::connection::{
     handle_reader,
-    handle_writer,
-    EitherPacket,
     HasCraftConn,
     SplinterClientConnection,
     SplinterServerConnection,
@@ -84,10 +84,26 @@ mod mapping;
 use crate::mapping::PacketMap;
 
 mod state;
-use crate::state::SplinterState;
+use crate::state::{
+    SplinterClient,
+    SplinterServer,
+    SplinterState,
+};
 
 mod chat;
 use crate::chat::init;
+
+lazy_static! {
+    static ref CONNECTION_ID_COUNT: Arc<Mutex<u64>> = Arc::new(Mutex::new(0));
+    static ref SERVER_ID_COUNT: Arc<Mutex<u64>> = Arc::new(Mutex::new(0));
+}
+
+fn get_id(counter: &Mutex<u64>) -> u64 {
+    let mut guard = counter.lock().unwrap();
+    let new_id = *guard;
+    *guard += 1;
+    new_id
+}
 
 /// Loads configuration from the specified .ron file
 ///
@@ -284,7 +300,7 @@ fn handle_status(state: Arc<SplinterState>, mut conn: SplinterClientConnection) 
             .config
             .read()
             .unwrap()
-            .server_status(Some(*state.player_count.read().unwrap())), // TODO: player count
+            .server_status(Some(state.players.read().unwrap().len() as u32)),
     }));
 
     loop {
@@ -420,6 +436,8 @@ fn handle_login(
         }
         other => other,
     };
+    let client_uuid = UUID4::random();
+    let servers_client_uuid;
     // read login success
     match next_packet {
         Ok(Some(RawPacketLatest::LoginSuccess(body))) => {
@@ -440,9 +458,15 @@ fn handle_login(
                     }
                 }
             }
+            let mut packet = match body.deserialize() {
+                Ok(packet) => packet,
+                Err(e) => return error!("Failed to deserialize login success: {}", e),
+            };
+            servers_client_uuid = packet.uuid;
+            packet.uuid = client_uuid;
             match client
                 .craft_conn
-                .write_raw_packet(RawPacketLatest::LoginSuccess(body))
+                .write_packet(PacketLatest::LoginSuccess(packet))
             {
                 Ok(()) => {
                     debug!("Relaying login packet to server for {}", name)
@@ -467,94 +491,63 @@ fn handle_login(
         Err(e) => return error!("Failed to read packet from server for {}: {}", name, e),
     }
 
-    {
-        let mut player_count = state.player_count.write().unwrap();
-        *player_count += 1;
-    }
-
     let (server_reader, server_writer) = server.craft_conn.into_split(); // proxy's connection to the server
     let (client_reader, client_writer) = client.craft_conn.into_split(); // proxy's connection to the client
-    let (server_writer_sender, server_writer_receiver) = mpsc::channel::<EitherPacket>();
-    let (client_writer_sender, client_writer_receiver) = mpsc::channel::<EitherPacket>();
+    let client_data = Arc::new(SplinterClient {
+        id: get_id(&*CONNECTION_ID_COUNT),
+        name: name,
+        writer: Mutex::new(client_writer),
+        uuid: client_uuid,
+        servers: RwLock::new(vec![SplinterServer {
+            addr: server.sock_addr,
+            id: get_id(&*SERVER_ID_COUNT),
+            writer: Mutex::new(server_writer),
+            client_uuid: servers_client_uuid,
+        }]),
+    });
+    {
+        let mut players = state.players.write().unwrap();
+        players.insert(client_data.id, client_data.clone());
+    }
     let is_alive_arc = Arc::new(RwLock::new(true));
     // client reader
     {
+        let client = client_data.clone();
         let state = state.clone();
         let packet_map = packet_map.clone();
         let is_alive_arc = is_alive_arc.clone();
-        let name = name.clone();
-        let writer_sender = server_writer_sender.clone();
-        let server_writer_sender = server_writer_sender.clone();
-        let client_writer_sender = client_writer_sender.clone();
         thread::spawn(move || {
             handle_reader(
+                client,
                 state,
                 is_alive_arc,
                 client_reader,
                 packet_map,
-                writer_sender,
-                server_writer_sender,
-                client_writer_sender,
-                name,
-            )
-        });
-    }
-
-    // server writer
-    {
-        let state = state.clone();
-        let is_alive_arc = is_alive_arc.clone();
-        let name = name.clone();
-        thread::spawn(move || {
-            handle_writer(
-                state,
-                is_alive_arc,
-                name,
-                server_writer_receiver,
-                server_writer,
+                PacketDirection::ServerBound,
             )
         });
     }
 
     // server reader
     {
+        let client = client_data.clone();
         let state = state.clone();
+        let state2 = state.clone();
         let packet_map = packet_map.clone();
         let is_alive_arc = is_alive_arc.clone();
-        let name = name.clone();
-        let writer_sender = client_writer_sender.clone();
-        let server_writer_sender = server_writer_sender.clone();
-        let client_writer_sender = client_writer_sender.clone();
         thread::spawn(move || {
             handle_reader(
+                client,
                 state,
                 is_alive_arc,
                 server_reader,
                 packet_map,
-                writer_sender,
-                server_writer_sender,
-                client_writer_sender,
-                name,
-            )
+                PacketDirection::ClientBound,
+            );
+            {
+                let mut players = state2.players.write().unwrap();
+                players.remove_entry(&client_data.id);
+            }
         });
     }
-    // client writer
-    let state = state.clone();
-    let state2 = state.clone();
-    let is_alive_arc = is_alive_arc.clone();
-    let name = name.clone();
-    thread::spawn(move || {
-        handle_writer(
-            state,
-            is_alive_arc,
-            name,
-            client_writer_receiver,
-            client_writer,
-        );
-
-        {
-            let mut player_count = state2.player_count.write().unwrap();
-            *player_count -= 1;
-        }
-    });
 }
