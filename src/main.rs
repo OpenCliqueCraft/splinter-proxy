@@ -90,6 +90,15 @@ use crate::mapping::{
 mod state;
 use crate::state::SplinterState;
 
+/// Loads configuration from the specified .ron file
+///
+/// # Example
+/// ```rust
+/// let config = get_config("./config.ron");
+/// if let Some(threshold) = config.compression_threshold {
+///     info!("compression threshold is {}", threshold);
+/// }
+/// ```
 fn get_config(config_path: &str) -> SplinterProxyConfiguration {
     let config = match SplinterProxyConfiguration::load(Path::new(config_path)) {
         Ok(config) => {
@@ -175,6 +184,9 @@ fn main() {
     listen_for_clients(state, packet_map);
 }
 
+/// Listens for incoming connections
+///
+/// This hands control of new connections to a new thread running [`await_handshake`].
 fn listen_for_clients(state: Arc<SplinterState>, packet_map: Arc<PacketMap>) {
     let listener = match TcpListener::bind(&state.config.read().unwrap().bind_address) {
         Err(e) => {
@@ -220,6 +232,9 @@ fn listen_for_clients(state: Arc<SplinterState>, packet_map: Arc<PacketMap>) {
     }
 }
 
+/// Waits for a handshake from the provided connection
+///
+/// Branches into [`handle_status`] and [`handle_login`] depending on the handshake's next state.
 fn await_handshake(
     state: Arc<SplinterState>,
     mut conn: SplinterClientConnection,
@@ -260,6 +275,7 @@ fn await_handshake(
     }
 }
 
+/// Responds to connection with status response and waits for pings
 fn handle_status(state: Arc<SplinterState>, mut conn: SplinterClientConnection) {
     conn.craft_conn.set_state(State::Status);
     conn.write_packet(PacketLatest::StatusResponse(StatusResponseSpec {
@@ -295,6 +311,9 @@ fn handle_status(state: Arc<SplinterState>, mut conn: SplinterClientConnection) 
     }
 }
 
+/// Handles login sequence between server and client
+///
+/// After login, packets can be inspected and relayed.
 fn handle_login(
     state: Arc<SplinterState>,
     mut client: SplinterClientConnection,
