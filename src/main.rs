@@ -81,14 +81,13 @@ use crate::config::{
 };
 
 mod mapping;
-use crate::mapping::{
-    process_raw_packet,
-    MapAction,
-    PacketMap,
-};
+use crate::mapping::PacketMap;
 
 mod state;
 use crate::state::SplinterState;
+
+mod chat;
+use crate::chat::init;
 
 fn get_config(config_path: &str) -> SplinterProxyConfiguration {
     let config = match SplinterProxyConfiguration::load(Path::new(config_path)) {
@@ -143,6 +142,8 @@ fn main() {
     info!("Starting Splinter proxy");
 
     let mut map: PacketMap = HashMap::new();
+    chat::init(&mut map);
+
     // map.insert(
     //     PacketLatestKind::PlayBlockChange,
     //     Box::new(|state: Arc<SplinterState>, raw_packet: RawPacketLatest| {

@@ -14,6 +14,10 @@ pub struct SplinterState {
     pub id: RwLock<i32>,
 }
 
+pub struct SplinterClient {
+    pub name: String,
+}
+
 impl SplinterState {
     pub fn new(config: SplinterProxyConfiguration) -> Arc<SplinterState> {
         Arc::new(SplinterState {

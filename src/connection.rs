@@ -18,6 +18,7 @@ use craftio_rs::{
 use mcproto_rs::{
     protocol::{
         HasPacketId,
+        HasPacketKind,
         Id,
         RawPacket,
     },
@@ -29,12 +30,11 @@ use mcproto_rs::{
 
 use crate::{
     config::SplinterProxyConfiguration,
-    mapping::{
-        process_raw_packet,
-        MapAction,
-        PacketMap,
+    mapping::PacketMap,
+    state::{
+        SplinterClient,
+        SplinterState,
     },
-    state::SplinterState,
 };
 
 pub struct SplinterClientConnection {
@@ -92,6 +92,7 @@ pub enum EitherPacket {
 }
 
 pub fn handle_reader(
+    client: Arc<SplinterClient>,
     state: Arc<SplinterState>,
     is_alive: Arc<RwLock<bool>>,
     mut reader: impl CraftSyncReader,
@@ -104,26 +105,16 @@ pub fn handle_reader(
     while *is_alive.read().unwrap() {
         match reader.read_raw_packet::<RawPacketLatest>() {
             Ok(Some(raw_packet)) => {
-                match process_raw_packet(state.clone(), &*packet_map, raw_packet) {
-                    MapAction::Relay(raw_packet) => {
-                        if let Err(_) = writer_sender.send(EitherPacket::Raw(
-                            raw_packet.id(),
-                            raw_packet.data().to_owned(),
-                        )) {
-                            break;
-                        }
+                if match packet_map.get(&raw_packet.kind()) {
+                    Some(entry) => entry(&*client, &*state, &raw_packet),
+                    None => true,
+                } {
+                    if let Err(e) = writer_sender.send(EitherPacket::Raw(
+                        raw_packet.id(),
+                        raw_packet.data().to_owned(),
+                    )) {
+                        error!("failed to send packet: {}", e);
                     }
-                    MapAction::Server(packet) => {
-                        if let Err(_) = server_writer_sender.send(EitherPacket::Normal(packet)) {
-                            break;
-                        }
-                    }
-                    MapAction::Client(packet) => {
-                        if let Err(_) = client_writer_sender.send(EitherPacket::Normal(packet)) {
-                            break;
-                        }
-                    }
-                    MapAction::None => {}
                 }
             }
             Ok(None) => {

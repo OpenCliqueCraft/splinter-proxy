@@ -15,25 +15,11 @@ use mcproto_rs::{
     },
 };
 
-use crate::state::SplinterState;
+use crate::state::{
+    SplinterClient,
+    SplinterState,
+};
 
-pub enum MapAction<'a> {
-    Relay(RawPacketLatest<'a>),
-    Server(PacketLatest), // TODO: will have to do like a server id or something
-    Client(PacketLatest),
-    None,
-}
-
-pub type PacketMapFn = Box<dyn Sync + Send + Fn(Arc<SplinterState>, RawPacketLatest) -> MapAction>;
+pub type PacketMapFn =
+    Box<dyn Sync + Send + Fn(&SplinterClient, &SplinterState, &RawPacketLatest) -> bool>;
 pub type PacketMap = HashMap<PacketLatestKind, PacketMapFn>;
-
-pub fn process_raw_packet<'a>(
-    state: Arc<SplinterState>,
-    map: &'a PacketMap,
-    raw_packet: RawPacketLatest<'a>,
-) -> MapAction<'a> {
-    return match map.get(&raw_packet.kind()) {
-        Some(entry) => entry(state, raw_packet),
-        None => MapAction::Relay::<'a>(raw_packet),
-    };
-}
