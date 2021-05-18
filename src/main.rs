@@ -90,6 +90,14 @@ use crate::state::{
     SplinterState,
 };
 
+mod zoning;
+use crate::zoning::{
+    BasicZoner,
+    SquareRegion,
+    Vector2,
+    Zoner,
+};
+
 mod chat;
 use crate::chat::init;
 
@@ -165,6 +173,35 @@ fn main() {
     )])
     .expect("Logger failed to initialize");
     info!("Starting Splinter proxy");
+
+    // Zoner test code, implements same structure as splinter-prototype
+    // Server 0 is inner 200x200 centered at spawn, Server 1 is everything
+    // outside of that box.
+
+    // let mut zoner = BasicZoner::new(
+    //     vec![(
+    //         0, // Server ID for inner box
+    //         SquareRegion::new(
+    //             Vector2 {
+    //                 x: -100,
+    //                 z: -100,
+    //             },
+    //             Vector2 {
+    //                 x: 100,
+    //                 z: 100,
+    //             },
+    //         ),
+    //     )],
+    //     1, // Fallback server ID
+    // );
+
+    // println!(
+    //     "zone check: {:?}",
+    //     zoner.get_zone(&Vector2 {
+    //         x: 101,
+    //         z: 100
+    //     })
+    // );
 
     let mut map: PacketMap = HashMap::new();
     chat::init(&mut map);
