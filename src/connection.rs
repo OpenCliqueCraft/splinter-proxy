@@ -38,74 +38,6 @@ use crate::{
     },
 };
 
-/// Data associated with a connection between the proxy and a client
-pub struct SplinterClientConnection {
-    /// Connection to the client
-    pub craft_conn: CraftTcpConnection,
-    /// Address of the client
-    pub sock_addr: SocketAddr,
-}
-
-/// Data associated with a connection between the proxy and a server
-pub struct SplinterServerConnection {
-    /// Conection to the server
-    pub craft_conn: CraftTcpConnection,
-    /// Address of the server
-    pub sock_addr: SocketAddr,
-}
-
-/// Common types that can be written to with the MC protocol
-pub trait HasCraftConn {
-    /// Gets a mutable reference the connection
-    fn craft_conn(&mut self) -> &mut CraftTcpConnection;
-    /// Gets the address
-    fn sock_addr(&self) -> SocketAddr;
-
-    /// Writes a packet to the connection
-    fn write_packet(&mut self, packet: PacketLatest) {
-        match self.craft_conn().write_packet(packet) {
-            Err(e) => return error!("Failed to write packet to {}: {}", self.sock_addr(), e),
-            Ok(_) => {}
-        }
-    }
-
-    /// Writes a raw packet to the connection
-    fn write_raw_packet(&mut self, packet: RawPacketLatest) {
-        match self.craft_conn().write_raw_packet(packet) {
-            Err(e) => return error!("Failed to write packet to {}: {}", self.sock_addr(), e),
-            Ok(_) => {}
-        }
-    }
-}
-
-impl HasCraftConn for SplinterClientConnection {
-    fn craft_conn(&mut self) -> &mut CraftTcpConnection {
-        &mut self.craft_conn
-    }
-
-    fn sock_addr(&self) -> SocketAddr {
-        self.sock_addr
-    }
-}
-
-impl HasCraftConn for SplinterServerConnection {
-    fn craft_conn(&mut self) -> &mut CraftTcpConnection {
-        &mut self.craft_conn
-    }
-
-    fn sock_addr(&self) -> SocketAddr {
-        self.sock_addr
-    }
-}
-
-/// A packet in the form of either a raw byte array or an unserialized packet
-pub enum EitherPacket {
-    /// An unserialized packet
-    Normal(PacketLatest),
-    /// A packet id with a byte array
-    Raw(Id, Vec<u8>),
-}
-
 /// Handles reading a connection and deciding what to do with data
 ///
 /// `client` contains the state of the client.
@@ -138,13 +70,21 @@ pub fn handle_reader(
                         PacketDirection::ClientBound => {
                             client.writer.lock().unwrap().write_raw_packet(raw_packet)
                         }
-                        PacketDirection::ServerBound => client.servers.read().unwrap()[0]
+                        PacketDirection::ServerBound => client
+                            .servers
+                            .read()
+                            .unwrap()
+                            .get(&0)
+                            .unwrap()
                             .writer
                             .lock()
                             .unwrap()
                             .write_raw_packet(raw_packet),
                     } {
-                        error!("Failed to send packet for {}: {:?}", client.name, direction);
+                        error!(
+                            "Failed to send packet for {}: {:?}, {}",
+                            client.name, direction, e
+                        );
                     }
                 }
             }

@@ -204,3 +204,54 @@ impl SplinterProxyConfiguration {
         }
     }
 }
+
+/// Loads configuration from the specified .ron file
+///
+/// # Example
+/// ```rust
+/// let config = get_config("./config.ron");
+/// if let Some(threshold) = config.compression_threshold {
+///     info!("compression threshold is {}", threshold);
+/// }
+/// ```
+pub fn get_config(config_path: &str) -> SplinterProxyConfiguration {
+    let config = match SplinterProxyConfiguration::load(Path::new(config_path)) {
+        Ok(config) => {
+            info!("Config loaded from {}", config_path);
+            config
+        }
+        Err(ConfigLoadError::NoFile) => {
+            warn!(
+                "No config file found at {}. Creating a new one from defaults",
+                config_path
+            );
+            let config = SplinterProxyConfiguration::default();
+            match config.save(Path::new(config_path)) {
+                Ok(()) => {}
+                Err(ConfigSaveError::Create(e)) => {
+                    error!("Failed to create file at {}: {}", config_path, e);
+                }
+                Err(ConfigSaveError::Write(e)) => {
+                    error!("Failed to write to {}: {}", config_path, e);
+                }
+            }
+            config
+        }
+        Err(ConfigLoadError::Io(e)) => {
+            error!(
+                "Failed to read config file at {}: {} Using default settings",
+                config_path, e
+            );
+            SplinterProxyConfiguration::default()
+        }
+        Err(ConfigLoadError::De(e)) => {
+            error!(
+                "Failure to deserialize config file at {}: {}. Using default settings",
+                config_path, e
+            );
+            SplinterProxyConfiguration::default()
+        }
+    };
+
+    config
+}
