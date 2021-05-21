@@ -35,6 +35,8 @@ use serde::{
     Serialize,
 };
 
+use crate::state::SplinterState;
+
 /// Structure containing the configuration of the proxy
 ///
 /// A version with defaults can be obtained using this struct's [`Default`] implementation
@@ -163,9 +165,8 @@ impl SplinterProxyConfiguration {
     }
 
     /// Create the server status based on the proxy configuration
-    ///
-    /// `total_players` [`None`] will default to `0` the player count is specified with [`Some`]
-    pub fn server_status(&self, total_players: Option<u32>) -> StatusSpec {
+    pub fn server_status(&self, state: &SplinterState) -> StatusSpec {
+        let total_players = state.players.read().unwrap().len();
         StatusSpec {
             version: self
                 .version
@@ -175,10 +176,8 @@ impl SplinterProxyConfiguration {
                     protocol: *protocol,
                 }),
             players: StatusPlayersSpec {
-                max: self
-                    .max_players
-                    .unwrap_or_else(|| total_players.unwrap_or(0) + 1) as i32,
-                online: total_players.unwrap_or(0) as i32,
+                max: self.max_players.unwrap_or_else(|| total_players as u32 + 1) as i32,
+                online: total_players as i32,
                 sample: self
                     .status
                     .player_sample
@@ -192,9 +191,18 @@ impl SplinterProxyConfiguration {
                             })
                             .collect::<Vec<StatusPlayerSampleSpec>>()
                     })
-                    .unwrap_or_else(
-                        || vec![], // should put the actual players of the server here
-                    ),
+                    .unwrap_or_else(|| {
+                        state
+                            .players
+                            .read()
+                            .unwrap()
+                            .iter()
+                            .map(|(_id, client)| StatusPlayerSampleSpec {
+                                name: client.name.clone(),
+                                id: client.uuid,
+                            })
+                            .collect::<Vec<StatusPlayerSampleSpec>>()
+                    }),
             },
             description: Chat::Text(TextComponent {
                 text: self.status.motd.clone(),

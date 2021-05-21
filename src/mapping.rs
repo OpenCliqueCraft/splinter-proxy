@@ -17,12 +17,25 @@ use mcproto_rs::{
 
 use crate::state::{
     SplinterClient,
+    SplinterServerConnection,
     SplinterState,
 };
 
-/// The function type for packet mapping
-pub type PacketMapFn =
-    Box<dyn Sync + Send + Fn(&SplinterClient, &SplinterState, &RawPacketLatest) -> bool>;
+/// Function for client-proxy packet mapping
+pub type ClientPacketMapFn =
+    Box<dyn Sync + Send + Fn(&Arc<SplinterClient>, &Arc<SplinterState>, &RawPacketLatest) -> bool>;
+
+/// Function for proxy-server packet mapping
+pub type ServerPacketMapFn = Box<
+    dyn Sync
+        + Send
+        + Fn(
+            &Arc<SplinterClient>,
+            &Arc<SplinterServerConnection>,
+            &Arc<SplinterState>,
+            &RawPacketLatest,
+        ) -> bool,
+>;
 
 /// Packet map type
-pub type PacketMap = HashMap<PacketLatestKind, PacketMapFn>;
+pub type PacketMap<T> = HashMap<PacketLatestKind, T>;

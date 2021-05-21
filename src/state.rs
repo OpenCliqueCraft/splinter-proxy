@@ -15,7 +15,14 @@ use std::{
 use craftio_rs::CraftWriter;
 use mcproto_rs::uuid::UUID4;
 
-use crate::config::SplinterProxyConfiguration;
+use crate::{
+    config::SplinterProxyConfiguration,
+    mapping::{
+        ClientPacketMapFn,
+        PacketMap,
+        ServerPacketMapFn,
+    },
+};
 
 /// Global state for the splinter proxy
 pub struct SplinterState {
@@ -25,6 +32,10 @@ pub struct SplinterState {
     pub players: RwLock<HashMap<u64, Arc<SplinterClient>>>,
     /// List of servers
     pub servers: RwLock<HashMap<u64, SplinterServer>>,
+    /// Client-proxy packet map
+    pub client_packet_map: PacketMap<ClientPacketMapFn>,
+    /// Proxy-server packet map
+    pub server_packet_map: PacketMap<ServerPacketMapFn>,
 }
 
 /// Server state
@@ -42,11 +53,13 @@ pub struct SplinterClient {
     /// Username of the client
     pub name: String,
     /// List of connections to servers
-    pub servers: RwLock<HashMap<u64, SplinterServerConnection>>,
+    pub servers: RwLock<HashMap<u64, Arc<SplinterServerConnection>>>,
     /// Writer to the client
     pub writer: Mutex<CraftWriter<TcpStream>>,
     /// Proxy's UUID of the client
     pub uuid: UUID4,
+    /// Whether the client connection is alive
+    pub alive: RwLock<bool>,
 }
 
 /// Server connection state specific to client-proxy-server
@@ -69,12 +82,14 @@ pub struct SplinterServerConnection {
 
 impl SplinterState {
     /// Creates a new splinter state given the proxy configuration
-    pub fn new(config: SplinterProxyConfiguration) -> Arc<SplinterState> {
-        Arc::new(SplinterState {
+    pub fn new(config: SplinterProxyConfiguration) -> SplinterState {
+        SplinterState {
             config: RwLock::new(config),
             players: RwLock::new(HashMap::new()),
             servers: RwLock::new(HashMap::new()),
-        })
+            client_packet_map: HashMap::new(),
+            server_packet_map: HashMap::new(),
+        }
     }
     pub fn next_server_id(&self) -> u64 {
         // unlikely made for multithreading

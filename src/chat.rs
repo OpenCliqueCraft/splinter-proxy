@@ -22,10 +22,10 @@ use crate::{
 };
 
 /// Initializes chat handling
-pub fn init(map: &mut PacketMap) {
-    map.insert(
+pub fn init(state: &mut SplinterState) {
+    state.client_packet_map.insert(
         PacketLatestKind::PlayClientChatMessage,
-        Box::new(|client, state: &SplinterState, raw_packet| {
+        Box::new(|client, state, raw_packet| {
             match raw_packet.deserialize() {
                 Ok(packet) => {
                     if let PacketLatest::PlayClientChatMessage(data) = packet {
