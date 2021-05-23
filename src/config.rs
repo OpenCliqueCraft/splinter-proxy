@@ -46,7 +46,7 @@ pub struct SplinterProxyConfiguration {
 
     /// [`Some`] tuple of the version name and protocol version number or [`None`] for unspecified
     ///
-    /// `Some(("1.16.3", 754))` by default
+    /// `Some(("1.16.5", 754))` by default
     pub version: Option<(String, i32)>,
 
     /// The server address to proxy to
@@ -104,7 +104,7 @@ impl Default for SplinterProxyConfiguration {
     fn default() -> Self {
         SplinterProxyConfiguration {
             protocol_version: 754,
-            version: Some(("Splinter 1.16.3".into(), 754)),
+            version: Some(("Splinter 1.16.5".into(), 754)),
             server_address: "127.0.0.1:25400".into(),
             bind_address: "127.0.0.1:25565".into(),
             max_players: None,

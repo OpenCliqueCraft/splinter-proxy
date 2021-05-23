@@ -18,19 +18,18 @@ Build and run through `cargo run`
 
 ### Setting up Minecraft server
 
-Grab a 1.16.3 server from [Spigot BuildTools](https://www.spigotmc.org/wiki/buildtools) or [Paper](https://papermc.io/downloads) ([Paper Server Download](https://papermc.io/api/v1/paper/1.16.3/latest/download)).
+Grab a 1.16.5 server from [Spigot BuildTools](https://www.spigotmc.org/wiki/buildtools) or [Paper](https://papermc.io/downloads).
 
 There are some required settings in server.properties:
 
-- `server-port=25400` Server port can be changed within the source code of the proxy.
-- `network-compression-threshold=-1` to disable compression, as the proxy does not support it at the moment.
+- `server-port=25400` Server port can be changed within the config file of the proxy.
 - `online-mode=false` to disable authentication, as authentication will be done either in the proxy or something on top of it like BungeeCord.
 
 Then you can run the server with `java -jar [server jar name].jar --nogui` or run it as a normal application.
 
 ### Joining the proxy
 
-Join with a 1.16.3 Minecraft client. If you're running the proxy on the same device you're playing from, then you can connect to `localhost:25565`.
+Join with a 1.16.5 Minecraft client. If you're running the proxy on the same device you're playing from, then you can connect to `localhost:25565`.
 
 ## Contributing
 
