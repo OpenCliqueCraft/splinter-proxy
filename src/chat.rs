@@ -22,17 +22,22 @@ use crate::{
 };
 
 /// Initializes chat handling
-pub fn init(map: &mut PacketMap) {
-    map.insert(
+pub fn init(state: &mut SplinterState) {
+    state.client_packet_map.insert(
         PacketLatestKind::PlayClientChatMessage,
-        Box::new(|client, state: &SplinterState, raw_packet| {
+        Box::new(|client, state, raw_packet| {
             match raw_packet.deserialize() {
                 Ok(packet) => {
                     if let PacketLatest::PlayClientChatMessage(data) = packet {
                         info!("{}", data.message);
                         match data.message.get(..1) {
                             Some("/") => {
-                                if let Err(e) = client.servers.read().unwrap()[0] // TODO: select the correct server
+                                if let Err(e) = client
+                                    .servers
+                                    .read()
+                                    .unwrap()
+                                    .get(&0)
+                                    .unwrap() // TODO: select the correct server
                                     .writer
                                     .lock()
                                     .unwrap()
@@ -50,7 +55,7 @@ pub fn init(map: &mut PacketMap) {
                             }
                             _ => {
                                 let message = format!("{}: {}", client.name, data.message);
-                                for (id, target) in state.players.read().unwrap().iter() {
+                                for (_id, target) in state.players.read().unwrap().iter() {
                                     if let Err(e) = target.writer.lock().unwrap().write_packet(
                                         PacketLatest::PlayServerChatMessage(
                                             PlayServerChatMessageSpec {
@@ -64,8 +69,8 @@ pub fn init(map: &mut PacketMap) {
                                         ),
                                     ) {
                                         error!(
-                                            "Failed to send chat message from {} to {}",
-                                            client.name, target.name
+                                            "Failed to send chat message from {} to {}: {}",
+                                            client.name, target.name, e
                                         );
                                     }
                                 }
