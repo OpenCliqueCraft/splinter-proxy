@@ -51,8 +51,8 @@ pub struct SplinterProxyConfiguration {
 
     /// The server address to proxy to
     ///
-    /// `"127.0.0.1:25400"` by default
-    pub server_address: String,
+    /// `[(0, "127.0.0.1:25400")]` by default
+    pub server_addresses: Vec<(u64, String)>,
 
     /// The address for the proxy to bind to
     ///
@@ -105,7 +105,7 @@ impl Default for SplinterProxyConfiguration {
         SplinterProxyConfiguration {
             protocol_version: 754,
             version: Some(("Splinter 1.16.5".into(), 754)),
-            server_address: "127.0.0.1:25400".into(),
+            server_addresses: vec![(0, "127.0.0.1:25400".into())],
             bind_address: "127.0.0.1:25565".into(),
             max_players: None,
             status: SplinterProxyStatus::default(),

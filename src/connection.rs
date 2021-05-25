@@ -224,11 +224,8 @@ pub fn handle_login(
     let name = logindata.name;
     info!("\"{}\" is attempting to login from {}", name, client_addr);
     debug!("Connecting \"{}\" to server", name);
-    let server_addr = state
-        .config
-        .read()
-        .unwrap()
-        .server_address
+    let server_addr = state.config.read().unwrap().server_addresses[0] // do not prioritize this version over the version in the handle_login rework
+        .1
         .as_str()
         .to_socket_addrs()
         .unwrap()
