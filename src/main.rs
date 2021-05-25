@@ -122,23 +122,15 @@ fn main() {
             default: 0,
         },
     );
-    // single server specific, temporary
-    let server_id = state.next_server_id();
-    state.servers.write().unwrap().insert(
-        server_id,
-        SplinterServer {
-            id: server_id,
-            addr: state
-                .config
-                .read()
-                .unwrap()
-                .server_address
-                .to_socket_addrs()
-                .unwrap()
-                .next()
-                .unwrap(),
-        },
-    );
+    for (id, addr) in state.config.read().unwrap().server_addresses.iter() {
+        state.servers.write().unwrap().insert(
+            *id,
+            SplinterServer {
+                id: *id,
+                addr: addr.to_socket_addrs().unwrap().next().unwrap(),
+            },
+        );
+    }
     state::init(&mut state);
     chat::init(&mut state);
 
