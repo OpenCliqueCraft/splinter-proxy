@@ -6,6 +6,7 @@ extern crate log;
 extern crate simplelog;
 
 use std::{
+    fs::File,
     net::ToSocketAddrs,
     sync::Arc,
 };
@@ -17,6 +18,7 @@ use simplelog::{
     LevelFilter,
     TermLogger,
     TerminalMode,
+    WriteLogger,
 };
 
 mod chat;
@@ -33,20 +35,27 @@ use crate::{
         SplinterState,
     },
     zoning::{
-        BasicZoner,
-        SquareRegion,
+        Region,
+        RegionType,
         Vector2,
         Zoner,
     },
 };
 
 fn main() {
-    CombinedLogger::init(vec![TermLogger::new(
-        LevelFilter::Trace,
-        Config::default(),
-        TerminalMode::Mixed,
-        ColorChoice::Auto,
-    )])
+    CombinedLogger::init(vec![
+        TermLogger::new(
+            LevelFilter::Trace,
+            Config::default(),
+            TerminalMode::Mixed,
+            ColorChoice::Auto,
+        ),
+        WriteLogger::new(
+            LevelFilter::Trace,
+            Config::default(),
+            File::create("latest.log").unwrap(),
+        ),
+    ])
     .expect("Logger failed to initialize");
     info!("Starting Splinter proxy");
 
@@ -116,6 +125,7 @@ fn main() {
             },
         );
     }
+
     chat::init(&mut state);
 
     listen_for_clients(Arc::new(state));

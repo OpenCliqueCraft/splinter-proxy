@@ -33,13 +33,20 @@ use mcproto_rs::{
         RawPacket,
         State,
     },
+    types::RemainingBytes,
     uuid::UUID4,
     v1_16_3::{
+        ClientChatMode,
+        ClientDisplayedSkinParts,
+        ClientMainHand,
         HandshakeNextState,
         HandshakeSpec,
         LoginSetCompressionSpec,
         LoginStartSpec,
         Packet753 as PacketLatest,
+        PlayClientSettingsSpec,
+        PlayServerPluginMessageSpec,
+        PlayTagsSpec,
         RawPacket753 as RawPacketLatest,
         StatusPongSpec,
         StatusResponseSpec,
@@ -53,7 +60,9 @@ use crate::{
         SplinterClient,
         SplinterServerConnection,
         SplinterState,
+        Tags,
     },
+    zoning::Vector2,
 };
 
 /// Listens for incoming connections
@@ -187,8 +196,25 @@ pub fn handle_login(
     mut client_conn: CraftTcpConnection,
     client_addr: SocketAddr,
 ) {
+    struct PartialClient {
+        name: Option<String>,
+        server: Option<u64>,
+        server_addr: Option<SocketAddr>,
+        uuid: UUID4,
+        server_uuid: Option<UUID4>,
+        settings: Option<PlayClientSettingsSpec>,
+    }
+    let mut client_data = PartialClient {
+        name: None,
+        server: None,
+        uuid: UUID4::random(),
+        server_uuid: None,
+        server_addr: None,
+        settings: None,
+    };
     client_conn.set_state(State::Login);
-    let logindata;
+    let mut next_sender = PacketDirection::ServerBound;
+    let mut server_conn: Option<CraftTcpConnection> = None;
     loop {
         match client_conn.read_raw_packet::<RawPacketLatest>() {
             Ok(Some(RawPacketLatest::LoginStart(body))) => match body.deserialize() {
@@ -239,128 +265,344 @@ pub fn handle_login(
                 name, server_addr, e
             )
         }
-    };
-
-    if let Err(e) = server_conn.write_packet(PacketLatest::Handshake(HandshakeSpec {
-        version: state.config.read().unwrap().protocol_version.into(),
-        server_address: format!("{}", server_addr.ip()),
-        server_port: server_addr.port(),
-        next_state: HandshakeNextState::Login,
-    })) {
-        return error!("Failed to write handshake to server {}: {}", server_addr, e);
-    }
-
-    server_conn.set_state(State::Login);
-    if let Err(e) = server_conn.write_packet(PacketLatest::LoginStart(LoginStartSpec {
-        name: name.clone(),
-    })) {
-        return error!(
-            "Failed to write login start to server {}: {}",
-            server_addr, e
-        );
-    }
-    // look for potential compression packet
-    let next_packet = match server_conn.read_raw_packet::<RawPacketLatest>() {
-        Ok(Some(RawPacketLatest::LoginSetCompression(body))) => {
-            let threshold = match body.deserialize() {
-                Ok(LoginSetCompressionSpec {
-                    threshold,
-                }) => i32::from(threshold),
-                Err(e) => {
-                    return error!(
-                        "Failed to deserialize compression set packet for {}: {}",
-                        name, e
-                    )
-                }
-            };
-            debug!(
-                "Got compression setting from server for {}: {}",
-                name, threshold
-            );
-            server_conn.set_compression_threshold(if threshold > 0 {
-                Some(threshold)
-            } else {
-                None
-            });
-            server_conn.read_raw_packet::<RawPacketLatest>()
-        }
-        other => other,
-    };
-    let client_uuid = UUID4::random();
-    let servers_client_uuid;
-    // read login success
-    match next_packet {
-        Ok(Some(RawPacketLatest::LoginSuccess(body))) => {
-            if let Some(threshold) = state.config.read().unwrap().compression_threshold {
-                match client_conn.write_packet(PacketLatest::LoginSetCompression(
-                    LoginSetCompressionSpec {
-                        threshold: threshold.into(),
-                    },
-                )) {
-                    Ok(()) => {
-                        debug!("Sent set compression to {} of {}", name, threshold);
-                        client_conn.set_compression_threshold(
-                            state.config.read().unwrap().compression_threshold,
+        .read_packet::<RawPacketLatest>()
+        {
+            Ok(Some(packet)) => match packet {
+                PacketLatest::LoginStart(data) => {
+                    let name = data.name;
+                    client_data.name = Some(name.clone());
+                    info!("\"{}\" attempting to log in from {}", name, client_addr);
+                    // TODO: grab player location information and find server from that
+                    let player_loc = Vector2 {
+                        x: 0,
+                        z: 0,
+                    };
+                    let server_id = state.zoner.read().unwrap().get_zone(&player_loc);
+                    client_data.server = Some(server_id);
+                    let server_addr = state.servers.read().unwrap().get(&server_id).unwrap().addr;
+                    client_data.server_addr = Some(server_addr);
+                    server_conn = Some(match CraftTcpConnection::connect_server_std(server_addr) {
+                        Ok(conn) => conn,
+                        Err(e) => {
+                            return error!(
+                                "Failed to connect {} to server at {}: {}",
+                                name, server_addr, e
+                            )
+                        }
+                    });
+                    let server_conn = server_conn.as_mut().unwrap();
+                    if let Err(e) =
+                        server_conn.write_packet(PacketLatest::Handshake(HandshakeSpec {
+                            version: state.config.read().unwrap().protocol_version.into(),
+                            server_address: format!("{}", server_addr.ip()),
+                            server_port: server_addr.port(),
+                            next_state: HandshakeNextState::Login,
+                        }))
+                    {
+                        return error!(
+                            "Failed to write handshake to server {}: {}",
+                            server_addr, e
                         );
                     }
-                    Err(e) => {
-                        return error!("Failed to send set compression packet to {}: {}", name, e)
-                    }
-                }
-            }
-            let mut packet = match body.deserialize() {
-                Ok(packet) => packet,
-                Err(e) => return error!("Failed to deserialize login success: {}", e),
-            };
-            servers_client_uuid = packet.uuid;
-            packet.uuid = client_uuid;
-            match client_conn.write_packet(PacketLatest::LoginSuccess(packet)) {
-                Ok(()) => {
-                    debug!("Relaying login packet to server for {}", name)
-                }
-                Err(e) => return error!("Failed to relay login packet to server {}: {}", name, e),
-            }
-            client_conn.set_state(State::Play);
-            server_conn.set_state(State::Play);
-        }
-        Ok(Some(packet)) => {
-            return error!(
-                "Expected a login success packet for {}, got {:?}",
-                name, packet
-            )
-        }
-        Ok(None) => {
-            return info!(
-                "Server connection closed before receiving login packet {}",
-                name
-            )
-        }
-        Err(e) => return error!("Failed to read packet from server for {}: {}", name, e),
-    }
 
-    let (server_reader, server_writer) = server_conn.into_split(); // proxy's connection to the server
+                    server_conn.set_state(State::Login);
+                    if let Err(e) =
+                        server_conn.write_packet(PacketLatest::LoginStart(LoginStartSpec {
+                            name: name.clone(),
+                        }))
+                    {
+                        return error!(
+                            "Failed to write login start to server {}: {}",
+                            server_addr, e
+                        );
+                    }
+                    next_sender = PacketDirection::ClientBound;
+                }
+                PacketLatest::LoginSetCompression(body) => {
+                    let threshold = i32::from(body.threshold);
+                    debug!(
+                        "Got compression setting from server for {}: {}",
+                        client_data
+                            .name
+                            .as_ref()
+                            .unwrap_or(&format!("{}", client_addr)),
+                        threshold
+                    );
+                    match server_conn.as_mut() {
+                        Some(server_conn) => {
+                            server_conn.set_compression_threshold(if threshold > 0 {
+                                Some(threshold)
+                            } else {
+                                None
+                            });
+                        }
+                        None => error!(
+                            "Got set compression packet before server connection established?"
+                        ),
+                    }
+                    next_sender = PacketDirection::ClientBound;
+                }
+                PacketLatest::LoginSuccess(mut body) => {
+                    let name = match client_data.name.as_ref() {
+                        Some(name) => name.clone(),
+                        None => format!("{}", client_addr),
+                    };
+                    if let Some(threshold) = state.config.read().unwrap().compression_threshold {
+                        match client_conn.write_packet(PacketLatest::LoginSetCompression(
+                            LoginSetCompressionSpec {
+                                threshold: threshold.into(),
+                            },
+                        )) {
+                            Ok(()) => {
+                                debug!("Sent set compression to {} of {}", name, threshold);
+                                client_conn.set_compression_threshold(
+                                    state.config.read().unwrap().compression_threshold,
+                                );
+                            }
+                            Err(e) => {
+                                return error!(
+                                    "Failed to send set compression packet to {}: {}",
+                                    name, e
+                                )
+                            }
+                        }
+                    }
+                    client_data.server_uuid = Some(body.uuid);
+                    body.uuid = client_data.uuid;
+                    match client_conn.write_packet(PacketLatest::LoginSuccess(body)) {
+                        Ok(()) => {
+                            debug!("Relaying login packet to server for {}", name)
+                        }
+                        Err(e) => {
+                            return error!("Failed to relay login packet to server {}: {}", name, e)
+                        }
+                    }
+                    client_conn.set_state(State::Play);
+                    server_conn.as_mut().unwrap().set_state(State::Play);
+                    match client_conn.write_packet(PacketLatest::PlayServerPluginMessage(
+                        PlayServerPluginMessageSpec {
+                            channel: "minecraft:brand".into(),
+                            data: "Splinter".as_bytes().to_vec().into(), // TODO: put in config or something
+                        },
+                    )) {
+                        Ok(()) => debug!("Sent brand to client {}", name),
+                        Err(e) => return error!("Failed to send brand to client {}: {}", name, e),
+                    }
+                    next_sender = PacketDirection::ClientBound;
+                }
+                PacketLatest::PlayJoinGame(body) => {
+                    // for now we'll just relay this
+                    match client_conn.write_packet(PacketLatest::PlayJoinGame(body)) {
+                        Ok(()) => {
+                            debug!(
+                                "Relaying join game packet to {}",
+                                client_data.name.as_ref().unwrap()
+                            )
+                        }
+                        Err(e) => {
+                            return error!(
+                                "Failed to relay join game packet for {}",
+                                client_data.name.as_ref().unwrap()
+                            )
+                        }
+                    }
+                    next_sender = PacketDirection::ServerBound;
+                }
+                PacketLatest::PlayClientPluginMessage(body) => {
+                    debug!(
+                        "Serverbound Channel \"{}\" for {}: {:?}",
+                        body.channel,
+                        client_data.name.as_ref().unwrap(),
+                        body.data
+                    );
+                    match body.channel.as_str() {
+                        "minecraft:brand" => {}
+                        _ => {}
+                    }
+                    next_sender = PacketDirection::ServerBound;
+                }
+                PacketLatest::PlayClientSettings(body) => {
+                    client_data.settings = Some(body.clone());
+                    match server_conn
+                        .as_mut()
+                        .unwrap()
+                        .write_packet(PacketLatest::PlayClientSettings(body))
+                    {
+                        Ok(()) => debug!(
+                            "Relayed client settings from {} to server {}",
+                            client_data.name.as_ref().unwrap(),
+                            client_data.server_addr.as_ref().unwrap(),
+                        ),
+                        Err(e) => {
+                            return error!(
+                                "Failed to relay client settings from {} to server {}: {}",
+                                client_data.name.as_ref().unwrap(),
+                                client_data.server_addr.as_ref().unwrap(),
+                                e
+                            )
+                        }
+                    }
+                    // we will also send our tag packet at this point
+                    if let Some(tags) = state.tags.read().unwrap().as_ref() {
+                        let tag_packet = PlayTagsSpec::from(tags);
+                        match client_conn.write_packet(PacketLatest::PlayTags(tag_packet)) {
+                            Ok(()) => debug!(
+                                "Sent tags packet to client {}",
+                                client_data.name.as_ref().unwrap()
+                            ),
+                            Err(e) => {
+                                return error!(
+                                    "Failed to send tags packet to client {}: {}",
+                                    client_data.name.as_ref().unwrap(),
+                                    e
+                                )
+                            }
+                        }
+                    }
+
+                    next_sender = PacketDirection::ClientBound;
+                }
+                PacketLatest::PlayServerPluginMessage(body) => {
+                    debug!(
+                        "Clientbound Channel \"{}\" for {}: {:?}",
+                        body.channel,
+                        client_data.name.as_ref().unwrap(),
+                        body.data
+                    );
+                    match body.channel.as_str() {
+                        "minecraft:brand" => {}
+                        _ => {}
+                    }
+                    next_sender = PacketDirection::ClientBound;
+                }
+                PacketLatest::PlayServerDifficulty(body) => {
+                    match client_conn.write_packet(PacketLatest::PlayServerDifficulty(body)) {
+                        Ok(()) => debug!(
+                            "Relayed server difficulty packet to {}",
+                            client_data.name.as_ref().unwrap()
+                        ),
+                        Err(e) => {
+                            return error!(
+                                "Failed to relay server difficulty packet to {}: {}",
+                                client_data.name.as_ref().unwrap(),
+                                e
+                            )
+                        }
+                    }
+                    next_sender = PacketDirection::ClientBound;
+                }
+                PacketLatest::PlayServerPlayerAbilities(body) => {
+                    match client_conn.write_packet(PacketLatest::PlayServerPlayerAbilities(body)) {
+                        Ok(()) => debug!(
+                            "Relayed player abilities to {}",
+                            client_data.name.as_ref().unwrap()
+                        ),
+                        Err(e) => {
+                            return error!(
+                                "Failed to relay player abilities to {}: {}",
+                                client_data.name.as_ref().unwrap(),
+                                e
+                            )
+                        }
+                    }
+                    next_sender = PacketDirection::ClientBound;
+                }
+                PacketLatest::PlayServerHeldItemChange(body) => {
+                    match client_conn.write_packet(PacketLatest::PlayServerHeldItemChange(body)) {
+                        Ok(()) => debug!(
+                            "Relayed player held item to {}",
+                            client_data.name.as_ref().unwrap()
+                        ),
+                        Err(e) => {
+                            return error!(
+                                "Failed to relay player held item to {}: {}",
+                                client_data.name.as_ref().unwrap(),
+                                e
+                            )
+                        }
+                    }
+                    next_sender = PacketDirection::ClientBound;
+                }
+                PacketLatest::PlayDeclareRecipes(body) => {
+                    match client_conn.write_packet(PacketLatest::PlayDeclareRecipes(body)) {
+                        Ok(()) => debug!(
+                            "Relayed declared recipes to {}",
+                            client_data.name.as_ref().unwrap()
+                        ),
+                        Err(e) => {
+                            return error!(
+                                "Failed to relay declared recipes to {}: {}",
+                                client_data.name.as_ref().unwrap(),
+                                e
+                            )
+                        }
+                    }
+                    next_sender = PacketDirection::ClientBound;
+                }
+                PacketLatest::PlayTags(body) => {
+                    trace!("Server sent play tags packet");
+                    if if let None = *state.tags.read().unwrap() {
+                        true
+                    } else {
+                        false
+                    } {
+                        // if no known tags, store and relay here
+                        let tags = Tags::from(&body);
+                        let cloned_tags = tags.clone();
+                        let mut tag_lock = state.tags.write().unwrap();
+                        *tag_lock = Some(cloned_tags);
+                        drop(tag_lock);
+                        debug!("Saved tags");
+                        let tag_packet = PlayTagsSpec::from(&tags);
+                        match client_conn.write_packet(PacketLatest::PlayTags(tag_packet)) {
+                            Ok(()) => debug!(
+                                "Sent tags packet to client {}",
+                                client_data.name.as_ref().unwrap()
+                            ),
+                            Err(e) => {
+                                return error!(
+                                    "Failed to send tags packet to client {}: {}",
+                                    client_data.name.as_ref().unwrap(),
+                                    e
+                                )
+                            }
+                        }
+                    }
+                    next_sender = PacketDirection::ClientBound;
+                    break;
+                }
+                _ => error!(
+                    "Unexpected packet from {} during login: {:?}",
+                    client_addr, packet
+                ),
+            },
+            Ok(None) => info!("Connection to {} closed during login", client_addr),
+            Err(e) => error!("Error reading packet from {}: {}", client_addr, e),
+        }
+    }
+    let (server_reader, server_writer) = server_conn.unwrap().into_split(); // proxy's connection to the server
     let (client_reader, client_writer) = client_conn.into_split(); // proxy's connection to the client
     let splinter_client = SplinterClient {
         id: state.next_client_id(),
-        name: name,
+        name: client_data.name.unwrap(),
         writer: Mutex::new(client_writer),
-        uuid: client_uuid,
+        uuid: client_data.uuid,
+        active_server: RwLock::new(client_data.server.unwrap()),
         servers: RwLock::new(HashMap::new()),
         alive: RwLock::new(true),
+        settings: client_data.settings.unwrap(),
     };
-    // TODO: we'll just grab first available server id for now
-    let server_id = *state.servers.read().unwrap().iter().next().unwrap().0;
     let server_client_conn = Arc::new(SplinterServerConnection {
-        addr: server_addr,
-        id: server_id,
+        addr: client_data.server_addr.unwrap(),
+        id: client_data.server.unwrap(),
         writer: Mutex::new(server_writer),
-        client_uuid: servers_client_uuid,
+        client_uuid: client_data.server_uuid.unwrap(),
     });
     splinter_client
         .servers
         .write()
         .unwrap()
-        .insert(server_id, Arc::clone(&server_client_conn));
+        .insert(server_client_conn.id, Arc::clone(&server_client_conn));
     let splinter_client = Arc::new(splinter_client);
     {
         let mut players = state.players.write().unwrap();
@@ -418,7 +660,7 @@ pub fn handle_client_reader(
                         .servers
                         .read()
                         .unwrap()
-                        .get(&0)
+                        .get(&client.active_server.read().unwrap())
                         .unwrap()
                         .writer
                         .lock()
