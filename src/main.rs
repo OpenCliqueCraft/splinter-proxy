@@ -6,6 +6,7 @@ extern crate log;
 extern crate simplelog;
 
 use std::{
+    fs::File,
     net::ToSocketAddrs,
     sync::Arc,
 };
@@ -17,6 +18,7 @@ use simplelog::{
     LevelFilter,
     TermLogger,
     TerminalMode,
+    WriteLogger,
 };
 
 mod chat;
@@ -33,20 +35,27 @@ use crate::{
         SplinterState,
     },
     zoning::{
-        BasicZoner,
-        SquareRegion,
+        Region,
+        RegionType,
         Vector2,
         Zoner,
     },
 };
 
 fn main() {
-    CombinedLogger::init(vec![TermLogger::new(
-        LevelFilter::Trace,
-        Config::default(),
-        TerminalMode::Mixed,
-        ColorChoice::Auto,
-    )])
+    CombinedLogger::init(vec![
+        TermLogger::new(
+            LevelFilter::Trace,
+            Config::default(),
+            TerminalMode::Mixed,
+            ColorChoice::Auto,
+        ),
+        WriteLogger::new(
+            LevelFilter::Trace,
+            Config::default(),
+            File::create("latest.log").unwrap(),
+        ),
+    ])
     .expect("Logger failed to initialize");
     info!("Starting Splinter proxy");
 
@@ -106,7 +115,13 @@ fn main() {
     //     }),
     // );
 
-    let mut state = SplinterState::new(get_config("./config.ron"));
+    let mut state = SplinterState::new(
+        get_config("./config.ron"),
+        Zoner {
+            regions: vec![],
+            default: 0,
+        },
+    );
     // single server specific, temporary
     let server_id = state.next_server_id();
     state.servers.write().unwrap().insert(
@@ -124,6 +139,7 @@ fn main() {
                 .unwrap(),
         },
     );
+    state::init(&mut state);
     chat::init(&mut state);
 
     listen_for_clients(Arc::new(state));
