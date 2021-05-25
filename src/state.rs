@@ -42,9 +42,14 @@ use crate::{
     zoning::Zoner,
 };
 
+/// Path to Minecraft block data
 pub const BLOCK_MAP_PATH: &str = "./minecraft-data/data/pc/1.16.2/blocks.json";
+/// Path to Minecraft item data
 pub const ITEM_MAP_PATH: &str = "./minecraft-data/data/pc/1.16.2/items.json";
+/// Path to Minecraft entity data
 pub const ENTITY_MAP_PATH: &str = "./minecraft-data/data/pc/1.16.2/entities.json";
+/// Path to Minecraft fluid data
+pub const FLUID_MAP_PATH: &str = "./fluids.json";
 
 lazy_static! {
     pub static ref BLOCK_TYPE_MAP: BiHashMap<i32, String> =
@@ -53,8 +58,14 @@ lazy_static! {
         BiHashMap::<i32, String>::from_iter(load_json_id_name_pairs(ITEM_MAP_PATH));
     pub static ref ENTITY_TYPE_MAP: BiHashMap<i32, String> =
         BiHashMap::<i32, String>::from_iter(load_json_id_name_pairs(ENTITY_MAP_PATH));
+    pub static ref FLUID_TYPE_MAP: BiHashMap<i32, String> =
+        BiHashMap::<i32, String>::from_iter(load_json_id_name_pairs(FLUID_MAP_PATH));
 }
 
+/// Loads a JSON file into a Vec of i32 and String pairs
+///
+/// Expects the JSON file to be in the format of a list of objects, and each object has a `name`
+/// string and an `id` number.
 fn load_json_id_name_pairs(filepath: &str) -> Vec<(i32, String)> {
     let data = match fs::read_to_string(filepath) {
         Ok(data) => data,
@@ -85,10 +96,12 @@ fn load_json_id_name_pairs(filepath: &str) -> Vec<(i32, String)> {
     list
 }
 
-#[derive(Clone)]
+/// Wrapper for a hashmap of tags corresponding to a list of namespaced ids.
+#[derive(Clone, Debug)]
 pub struct TagList(HashMap<String, Vec<String>>);
 
-#[derive(Clone)]
+/// Contains tags for the tag lists of blocks, items, entities, and fluids.
+#[derive(Clone, Debug)]
 pub struct Tags {
     pub blocks: TagList,
     pub items: TagList,
@@ -231,7 +244,7 @@ impl From<&PlayTagsSpec> for Tags {
         Tags {
             blocks: proto_tags_to_tags(&proto_tags.block_tags, &*BLOCK_TYPE_MAP),
             items: proto_tags_to_tags(&proto_tags.item_tags, &*ITEM_TYPE_MAP),
-            fluids: proto_tags_to_tags(&proto_tags.fluid_tags, &*BLOCK_TYPE_MAP),
+            fluids: proto_tags_to_tags(&proto_tags.fluid_tags, &*FLUID_TYPE_MAP),
             entities: proto_tags_to_tags(&proto_tags.entity_tags, &*ENTITY_TYPE_MAP),
         }
     }
@@ -242,7 +255,7 @@ impl From<&Tags> for PlayTagsSpec {
         PlayTagsSpec {
             block_tags: tags_to_proto_tags(&tags.blocks, &*BLOCK_TYPE_MAP),
             item_tags: tags_to_proto_tags(&tags.items, &*ITEM_TYPE_MAP),
-            fluid_tags: tags_to_proto_tags(&tags.fluids, &*BLOCK_TYPE_MAP),
+            fluid_tags: tags_to_proto_tags(&tags.fluids, &*FLUID_TYPE_MAP),
             entity_tags: tags_to_proto_tags(&tags.entities, &*ENTITY_TYPE_MAP),
         }
     }
@@ -251,6 +264,7 @@ impl From<&Tags> for PlayTagsSpec {
 pub fn init(_state: &mut SplinterState) {
     &*BLOCK_TYPE_MAP;
     &*ITEM_TYPE_MAP;
+    &*FLUID_TYPE_MAP;
     &*ENTITY_TYPE_MAP;
-    debug!("Loaded block, item, and entity data");
+    debug!("Loaded block, item, fluid, and entity data");
 }
