@@ -216,54 +216,9 @@ pub fn handle_login(
     let mut next_sender = PacketDirection::ServerBound;
     let mut server_conn: Option<CraftTcpConnection> = None;
     loop {
-        match client_conn.read_raw_packet::<RawPacketLatest>() {
-            Ok(Some(RawPacketLatest::LoginStart(body))) => match body.deserialize() {
-                Ok(data) => {
-                    logindata = data;
-                    break;
-                }
-                Err(e) => {
-                    return error!(
-                        "Error parsing login start packet from {}: {}",
-                        client_addr, e
-                    )
-                }
-            },
-            Ok(Some(RawPacketLatest::Handshake(body))) => {
-                warn!("Got a second handshake? {:?}", body.deserialize().unwrap());
-            }
-            Ok(Some(other)) => {
-                return error!(
-                    "Expected a login packet from {}, got {:?}",
-                    client_addr, other
-                )
-            }
-            Ok(None) => {
-                return info!(
-                    "Connection to {} closed before login packet is received",
-                    client_addr
-                )
-            }
-            Err(e) => return error!("Error reading packet from {}: {}", client_addr, e),
-        };
-    }
-    let name = logindata.name;
-    info!("\"{}\" is attempting to login from {}", name, client_addr);
-    debug!("Connecting \"{}\" to server", name);
-    let server_addr = state.config.read().unwrap().server_addresses[0] // do not prioritize this version over the version in the handle_login rework
-        .1
-        .as_str()
-        .to_socket_addrs()
-        .unwrap()
-        .next()
-        .unwrap(); // yea
-    let mut server_conn = match CraftTcpConnection::connect_server_std(server_addr) {
-        Ok(conn) => conn,
-        Err(e) => {
-            return error!(
-                "Failed to connect {} to server at {}: {}",
-                name, server_addr, e
-            )
+        match match next_sender {
+            PacketDirection::ServerBound => &mut client_conn,
+            PacketDirection::ClientBound => server_conn.as_mut().unwrap(),
         }
         .read_packet::<RawPacketLatest>()
         {
