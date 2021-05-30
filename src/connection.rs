@@ -23,6 +23,7 @@ use craftio_rs::{
     CraftSyncReader,
     CraftSyncWriter,
     CraftTcpConnection,
+    WriteError,
 };
 use mcproto_rs::{
     protocol::{
@@ -43,11 +44,9 @@ use mcproto_rs::{
         HandshakeSpec,
         LoginSetCompressionSpec,
         LoginStartSpec,
-        Packet753 as PacketLatest,
         PlayClientSettingsSpec,
         PlayServerPluginMessageSpec,
         PlayTagsSpec,
-        RawPacket753 as RawPacketLatest,
         StatusPongSpec,
         StatusResponseSpec,
     },
@@ -55,7 +54,16 @@ use mcproto_rs::{
 
 use crate::{
     config::SplinterProxyConfiguration,
-    mapping::PacketMap,
+    mapping::{
+        eid::map_eid,
+        LazyDeserializedPacket,
+        PacketMap,
+    },
+    proto::{
+        PacketLatest,
+        PacketLatestKind,
+        RawPacketLatest,
+    },
     state::{
         SplinterClient,
         SplinterServerConnection,
@@ -185,6 +193,24 @@ pub fn handle_status(
             }
             Err(e) => error!("Error reading packet from {}: {}", sock_addr, e),
         }
+    }
+}
+
+pub fn write_packet_server(
+    client: &Arc<SplinterClient>,
+    server: &Arc<SplinterServerConnection>,
+    state: &Arc<SplinterState>,
+    mut lazy_packet: LazyDeserializedPacket,
+) -> Result<(), WriteError> {
+    if let Some(entry) = state.server_packet_map.0.get(&lazy_packet.kind()) {
+        for action in entry.iter() {
+            action(client, server, state, &mut lazy_packet);
+        }
+    }
+    if let Ok(packet) = lazy_packet.into_packet() {
+        server.writer.lock().unwrap().write_packet(packet)
+    } else {
+        Ok(())
     }
 }
 
@@ -323,6 +349,13 @@ pub fn handle_login(
                         }
                     }
                     client_data.server_uuid = Some(body.uuid);
+                    state.uuid_table.write().unwrap().insert(
+                        client_data.uuid,
+                        (
+                            client_data.server.unwrap(),
+                            client_data.server_uuid.unwrap(),
+                        ),
+                    );
                     body.uuid = client_data.uuid;
                     match client_conn.write_packet(PacketLatest::LoginSuccess(body)) {
                         Ok(()) => {
@@ -345,8 +378,12 @@ pub fn handle_login(
                     }
                     next_sender = PacketDirection::ClientBound;
                 }
-                PacketLatest::PlayJoinGame(body) => {
+                PacketLatest::PlayJoinGame(mut body) => {
                     // for now we'll just relay this
+                    trace!("Got join game");
+                    body.entity_id =
+                        map_eid(&state, client_data.server.unwrap(), body.entity_id.into()).into();
+                    trace!("Mapped eid");
                     match client_conn.write_packet(PacketLatest::PlayJoinGame(body)) {
                         Ok(()) => {
                             debug!(
@@ -356,8 +393,9 @@ pub fn handle_login(
                         }
                         Err(e) => {
                             return error!(
-                                "Failed to relay join game packet for {}",
-                                client_data.name.as_ref().unwrap()
+                                "Failed to relay join game packet for {}: {}",
+                                client_data.name.as_ref().unwrap(),
+                                e
                             )
                         }
                     }
@@ -496,11 +534,7 @@ pub fn handle_login(
                 }
                 PacketLatest::PlayTags(body) => {
                     trace!("Server sent play tags packet");
-                    if if let None = *state.tags.read().unwrap() {
-                        true
-                    } else {
-                        false
-                    } {
+                    if state.tags.read().unwrap().is_none() {
                         // if no known tags, store and relay here
                         let tags = Tags::from(&body);
                         let cloned_tags = tags.clone();
@@ -523,7 +557,7 @@ pub fn handle_login(
                             }
                         }
                     }
-                    next_sender = PacketDirection::ClientBound;
+                    // next_sender = PacketDirection::ClientBound;
                     break;
                 }
                 _ => error!(
@@ -538,7 +572,7 @@ pub fn handle_login(
     let (server_reader, server_writer) = server_conn.unwrap().into_split(); // proxy's connection to the server
     let (client_reader, client_writer) = client_conn.into_split(); // proxy's connection to the client
     let splinter_client = SplinterClient {
-        id: state.next_client_id(),
+        id: state.player_id_gen.lock().unwrap().take_id(),
         name: client_data.name.unwrap(),
         writer: Mutex::new(client_writer),
         uuid: client_data.uuid,
@@ -604,28 +638,46 @@ pub fn handle_client_reader(
     state: Arc<SplinterState>,
     mut reader: impl CraftSyncReader,
 ) {
-    while *client.alive.read().unwrap() {
+    'outer: while *client.alive.read().unwrap() {
         match reader.read_raw_packet::<RawPacketLatest>() {
             Ok(Some(raw_packet)) => {
-                if match state.client_packet_map.get(&raw_packet.kind()) {
-                    Some(entry) => entry(&client, &state, &raw_packet),
+                let mut lazy_packet = LazyDeserializedPacket::new(&raw_packet);
+                if match state.client_packet_map.0.get(&raw_packet.kind()) {
+                    Some(entry) => {
+                        entry.is_empty()
+                            || entry.iter().fold(false, |acc, action| {
+                                acc || action(&client, &state, &mut lazy_packet)
+                            })
+                    }
                     None => true,
                 } {
-                    if let Err(e) = client
-                        .servers
-                        .read()
-                        .unwrap()
-                        .get(&client.active_server.read().unwrap())
-                        .unwrap()
-                        .writer
-                        .lock()
-                        .unwrap()
-                        .write_raw_packet(raw_packet)
-                    {
-                        error!(
-                            "Failed to relay packet to server for {}: {}",
-                            client.name, e
-                        );
+                    let server = client.server();
+                    let mut relay_packet = true;
+                    if let Some(entry) = state.server_packet_map.0.get(&raw_packet.kind()) {
+                        // only serverbound actions will be found; should not conflict with the clientbound ones
+                        relay_packet = entry.is_empty()
+                            || entry.iter().fold(false, |acc, action| {
+                                acc || action(&client, &server, &state, &mut lazy_packet)
+                            });
+                    }
+                    if relay_packet {
+                        let mut writer = server.writer.lock().unwrap();
+                        if let Err(e) = if lazy_packet.is_deserialized() {
+                            writer.write_packet(match lazy_packet.into_packet() {
+                                Ok(packet) => packet,
+                                Err(e) => {
+                                    error!("Failed to parse packet from {}: {}", client.name, e);
+                                    continue 'outer;
+                                }
+                            })
+                        } else {
+                            writer.write_raw_packet(raw_packet)
+                        } {
+                            error!(
+                                "Failed to relay packet to server for {}: {}",
+                                client.name, e
+                            );
+                        }
                     }
                 }
             }
@@ -660,18 +712,48 @@ pub fn handle_server_reader(
     state: Arc<SplinterState>,
     mut reader: impl CraftSyncReader,
 ) {
-    while *client.alive.read().unwrap() {
+    'outer: while *client.alive.read().unwrap() {
         match reader.read_raw_packet::<RawPacketLatest>() {
             Ok(Some(raw_packet)) => {
-                if match state.server_packet_map.get(&raw_packet.kind()) {
-                    Some(entry) => entry(&client, &server, &state, &raw_packet),
+                let mut lazy_packet = LazyDeserializedPacket::new(&raw_packet);
+                if match state.server_packet_map.0.get(&raw_packet.kind()) {
+                    Some(entry) => {
+                        entry.is_empty()
+                            || entry.iter().fold(false, |acc, action| {
+                                acc || action(&client, &server, &state, &mut lazy_packet)
+                            })
+                    }
                     None => true,
                 } {
-                    if let Err(e) = client.writer.lock().unwrap().write_raw_packet(raw_packet) {
-                        error!(
-                            "Failed to relay packet to client for {}: {}",
-                            client.name, e
-                        );
+                    let mut relay_packet = true;
+                    if let Some(entry) = state.client_packet_map.0.get(&raw_packet.kind()) {
+                        // only serverbound actions will be found; should not conflict with the clientbound ones
+                        relay_packet = entry.is_empty()
+                            || entry.iter().fold(false, |acc, action| {
+                                acc || action(&client, &state, &mut lazy_packet)
+                            });
+                    }
+                    if relay_packet {
+                        let mut writer = client.writer.lock().unwrap();
+                        if let Err(e) = if lazy_packet.is_deserialized() {
+                            writer.write_packet(match lazy_packet.into_packet() {
+                                Ok(packet) => packet,
+                                Err(e) => {
+                                    error!(
+                                        "Failed to parse packet for client {} from server {}: {}",
+                                        client.name, server.addr, e
+                                    );
+                                    continue 'outer;
+                                }
+                            })
+                        } else {
+                            writer.write_raw_packet(raw_packet)
+                        } {
+                            error!(
+                                "Failed to relay packet to client for {}: {}",
+                                client.name, e
+                            );
+                        }
                     }
                 }
             }

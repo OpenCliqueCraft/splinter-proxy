@@ -16,9 +16,17 @@ use std::{
 };
 
 use bimap::hash::BiHashMap;
-use craftio_rs::CraftWriter;
+use craftio_rs::{
+    CraftSyncWriter,
+    CraftWriter,
+    WriteError,
+};
 use json;
 use mcproto_rs::{
+    protocol::{
+        HasPacketKind,
+        PacketErr,
+    },
     types::{
         CountedArray,
         VarInt,
@@ -35,9 +43,14 @@ use mcproto_rs::{
 use crate::{
     config::SplinterProxyConfiguration,
     mapping::{
-        ClientPacketMapFn,
+        ClientPacketMap,
+        IdGenerator,
         PacketMap,
-        ServerPacketMapFn,
+        ServerPacketMap,
+    },
+    proto::{
+        PacketLatest,
+        PacketLatestKind,
     },
     zoning::Zoner,
 };
@@ -109,6 +122,12 @@ pub struct Tags {
     pub entities: TagList,
 }
 
+/// Data associated with an entity
+pub struct EntityData {
+    pub id: i32,
+    pub entity_type: i32,
+}
+
 /// Global state for the splinter proxy
 pub struct SplinterState {
     pub zoner: RwLock<Zoner>,
@@ -116,14 +135,24 @@ pub struct SplinterState {
     pub config: RwLock<SplinterProxyConfiguration>,
     /// List of client states
     pub players: RwLock<HashMap<u64, Arc<SplinterClient>>>,
+    pub player_id_gen: Mutex<IdGenerator>,
     /// List of servers
     pub servers: RwLock<HashMap<u64, SplinterServer>>,
+    pub server_id_gen: Mutex<IdGenerator>,
     /// Client-proxy packet map
-    pub client_packet_map: PacketMap<ClientPacketMapFn>,
+    pub client_packet_map: ClientPacketMap,
     /// Proxy-server packet map
-    pub server_packet_map: PacketMap<ServerPacketMapFn>,
+    pub server_packet_map: ServerPacketMap,
     /// Proxy-wide tags for the clients
     pub tags: RwLock<Option<Tags>>,
+    /// Table to map between proxy entity ids and server entity ids
+    pub eid_table: RwLock<BiHashMap<i32, (u64, i32)>>,
+    /// Manages available EIDs
+    pub eid_gen: Mutex<IdGenerator>,
+    /// Extra necessary data associated with entity ids
+    pub eid_data: RwLock<HashMap<i32, EntityData>>,
+    /// Table to map between proxy uuids and server uids
+    pub uuid_table: RwLock<BiHashMap<UUID4, (u64, UUID4)>>,
 }
 
 /// Server state
@@ -179,28 +208,31 @@ impl SplinterState {
             zoner: RwLock::new(zoner),
             config: RwLock::new(config),
             players: RwLock::new(HashMap::new()),
+            player_id_gen: Mutex::new(IdGenerator::new()),
             servers: RwLock::new(HashMap::new()),
-            client_packet_map: HashMap::new(),
-            server_packet_map: HashMap::new(),
+            server_id_gen: Mutex::new(IdGenerator::new()),
+            client_packet_map: PacketMap(HashMap::new()),
+            server_packet_map: PacketMap(HashMap::new()),
             tags: RwLock::new(None),
+            eid_table: RwLock::new(BiHashMap::new()),
+            eid_gen: Mutex::new(IdGenerator::new()),
+            eid_data: RwLock::new(HashMap::new()),
+            uuid_table: RwLock::new(BiHashMap::new()),
         }
     }
-    pub fn next_server_id(&self) -> u64 {
-        // unlikely made for multithreading
-        let mut id = 0u64;
-        let lock = self.servers.read().unwrap();
-        while lock.contains_key(&id) {
-            id += 1;
-        }
-        return id;
-    }
-    pub fn next_client_id(&self) -> u64 {
-        let mut id = 0u64;
-        let lock = self.players.read().unwrap();
-        while lock.contains_key(&id) {
-            id += 1;
-        }
-        return id;
+}
+
+impl SplinterClient {
+    /// Returns an Arc to the active server connection of a client
+    pub fn server(&self) -> Arc<SplinterServerConnection> {
+        Arc::clone(
+            &*self
+                .servers
+                .read()
+                .unwrap()
+                .get(&*self.active_server.read().unwrap())
+                .unwrap(),
+        )
     }
 }
 
