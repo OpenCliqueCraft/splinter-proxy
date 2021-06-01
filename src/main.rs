@@ -25,6 +25,7 @@ mod chat;
 mod config;
 mod connection;
 mod mapping;
+mod proto;
 mod state;
 mod zoning;
 use crate::{
@@ -132,6 +133,8 @@ fn main() {
         );
     }
     state::init(&mut state);
+    mapping::eid::init(&mut state);
+    mapping::uuid::init(&mut state);
     chat::init(&mut state);
 
     listen_for_clients(Arc::new(state));

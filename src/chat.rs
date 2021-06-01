@@ -17,36 +17,38 @@ use mcproto_rs::{
 };
 
 use crate::{
-    mapping::PacketMap,
+    connection::write_packet_server,
+    mapping::{
+        LazyDeserializedPacket,
+        PacketMap,
+    },
     state::SplinterState,
 };
 
 /// Initializes chat handling
 pub fn init(state: &mut SplinterState) {
-    state.client_packet_map.insert(
+    state.client_packet_map.add_action(
         PacketLatestKind::PlayClientChatMessage,
-        Box::new(|client, state, raw_packet| {
-            match raw_packet.deserialize() {
+        Box::new(|client, state, lazy_packet| {
+            match lazy_packet.packet() {
                 Ok(packet) => {
                     if let PacketLatest::PlayClientChatMessage(data) = packet {
-                        info!("{}", data.message);
+                        info!("{}: {}", client.name, data.message);
                         match data.message.get(..1) {
                             Some("/") => {
-                                if let Err(e) = client
-                                    .servers
-                                    .read()
-                                    .unwrap()
-                                    .get(&0)
-                                    .unwrap() // TODO: select the correct server
-                                    .writer
-                                    .lock()
-                                    .unwrap()
-                                    .write_packet(PacketLatest::PlayClientChatMessage(
-                                        PlayClientChatMessageSpec {
-                                            message: data.message,
-                                        },
-                                    ))
-                                {
+                                let server = client.server();
+                                if let Err(e) = write_packet_server(
+                                    client,
+                                    &server,
+                                    state,
+                                    LazyDeserializedPacket::from_packet(
+                                        PacketLatest::PlayClientChatMessage(
+                                            PlayClientChatMessageSpec {
+                                                message: data.message.clone(),
+                                            },
+                                        ),
+                                    ),
+                                ) {
                                     error!(
                                         "Failed to send command message from {}: {}",
                                         client.name, e
