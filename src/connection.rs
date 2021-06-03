@@ -675,8 +675,6 @@ pub fn handle_login(
         let state2 = Arc::clone(&state);
         thread::spawn(move || {
             handle_client_reader(client, state, client_reader);
-            let mut players = state2.players.write().unwrap();
-            players.remove_entry(&client2.id);
         });
     }
 
