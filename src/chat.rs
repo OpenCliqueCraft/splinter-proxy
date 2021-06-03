@@ -17,7 +17,10 @@ use mcproto_rs::{
 };
 
 use crate::{
-    connection::write_packet_server,
+    connection::{
+        write_packet_client,
+        write_packet_server,
+    },
     mapping::{
         LazyDeserializedPacket,
         PacketMap,
@@ -58,16 +61,20 @@ pub fn init(state: &mut SplinterState) {
                             _ => {
                                 let message = format!("{}: {}", client.name, data.message);
                                 for (_id, target) in state.players.read().unwrap().iter() {
-                                    if let Err(e) = target.writer.lock().unwrap().write_packet(
-                                        PacketLatest::PlayServerChatMessage(
-                                            PlayServerChatMessageSpec {
-                                                message: Chat::Text(TextComponent {
-                                                    text: message.clone(),
-                                                    base: BaseComponent::default(),
-                                                }),
-                                                position: ChatPosition::ChatBox,
-                                                sender: client.uuid,
-                                            },
+                                    if let Err(e) = write_packet_client(
+                                        target,
+                                        state,
+                                        LazyDeserializedPacket::from_packet(
+                                            PacketLatest::PlayServerChatMessage(
+                                                PlayServerChatMessageSpec {
+                                                    message: Chat::Text(TextComponent {
+                                                        text: message.clone(),
+                                                        base: BaseComponent::default(),
+                                                    }),
+                                                    position: ChatPosition::ChatBox,
+                                                    sender: client.uuid,
+                                                },
+                                            ),
                                         ),
                                     ) {
                                         error!(
