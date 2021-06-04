@@ -136,6 +136,9 @@ fn main() {
     mapping::eid::init(&mut state);
     mapping::uuid::init(&mut state);
     chat::init(&mut state);
+    connection::init(&mut state);
 
-    listen_for_clients(Arc::new(state));
+    let state_arc = Arc::new(state);
+    connection::init_post(Arc::clone(&state_arc));
+    listen_for_clients(state_arc);
 }

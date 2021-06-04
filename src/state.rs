@@ -181,6 +181,9 @@ pub struct SplinterClient {
     pub alive: RwLock<bool>,
     /// Client-side settings
     pub settings: PlayClientSettingsSpec,
+    /// List of millisecond keep alive IDs that are being waited for from a client, sorted by
+    /// oldest to newest
+    pub keep_alive_waiting: RwLock<Vec<i64>>,
 }
 
 /// Server connection state specific to client-proxy-server

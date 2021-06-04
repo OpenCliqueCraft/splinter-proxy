@@ -15,6 +15,10 @@ use std::{
         RwLock,
     },
     thread,
+    time::{
+        Duration,
+        SystemTime,
+    },
 };
 
 use craftio_rs::{
@@ -34,7 +38,12 @@ use mcproto_rs::{
         RawPacket,
         State,
     },
-    types::RemainingBytes,
+    types::{
+        BaseComponent,
+        Chat,
+        RemainingBytes,
+        TextComponent,
+    },
     uuid::UUID4,
     v1_16_3::{
         ClientChatMode,
@@ -44,7 +53,10 @@ use mcproto_rs::{
         HandshakeSpec,
         LoginSetCompressionSpec,
         LoginStartSpec,
+        PlayClientKeepAliveSpec,
         PlayClientSettingsSpec,
+        PlayDisconnectSpec,
+        PlayServerKeepAliveSpec,
         PlayServerPluginMessageSpec,
         PlayTagsSpec,
         StatusPongSpec,
@@ -196,6 +208,10 @@ pub fn handle_status(
     }
 }
 
+/// Writes the given packet to a server
+///
+/// Preferably use this over directly accessing a server's writer, so that the packet will go
+/// through the server packet map
 pub fn write_packet_server(
     client: &Arc<SplinterClient>,
     server: &Arc<SplinterServerConnection>,
@@ -212,6 +228,59 @@ pub fn write_packet_server(
     } else {
         Ok(())
     }
+}
+
+/// Writes the given packet to a client
+///
+/// Preferably use this over directly accessing a client's writer, so that the packet will go
+/// through the client packet map
+pub fn write_packet_client(
+    client: &Arc<SplinterClient>,
+    state: &Arc<SplinterState>,
+    mut lazy_packet: LazyDeserializedPacket,
+) -> Result<(), WriteError> {
+    if let Some(entry) = state.client_packet_map.0.get(&lazy_packet.kind()) {
+        for action in entry.iter() {
+            action(client, state, &mut lazy_packet);
+        }
+    }
+    if let Ok(packet) = lazy_packet.into_packet() {
+        client.writer.lock().unwrap().write_packet(packet)
+    } else {
+        Ok(())
+    }
+}
+
+/// A reason for a client to get kicked
+pub enum ClientKickReason {
+    /// Client failed to send a keep alive packet back in time
+    TimedOut,
+}
+
+/// Kicks a client from the proxy
+pub fn kick_client(
+    client: &Arc<SplinterClient>,
+    state: &Arc<SplinterState>,
+    reason: ClientKickReason,
+) {
+    if let Err(e) = write_packet_client(
+        client,
+        state,
+        LazyDeserializedPacket::from_packet(PacketLatest::PlayDisconnect(PlayDisconnectSpec {
+            reason: Chat::Text(TextComponent {
+                text: match reason {
+                    ClientKickReason::TimedOut => "Timed out".into(),
+                },
+                base: BaseComponent::default(),
+            }),
+        })),
+    ) {
+        error!(
+            "Failed to send disconnect to client {}, {}: {}",
+            client.id, client.name, e
+        );
+    }
+    *client.alive.write().unwrap() = false;
 }
 
 /// Handles login sequence between server and client
@@ -580,6 +649,7 @@ pub fn handle_login(
         servers: RwLock::new(HashMap::new()),
         alive: RwLock::new(true),
         settings: client_data.settings.unwrap(),
+        keep_alive_waiting: RwLock::new(vec![]),
     };
     let server_client_conn = Arc::new(SplinterServerConnection {
         addr: client_data.server_addr.unwrap(),
@@ -605,8 +675,6 @@ pub fn handle_login(
         let state2 = Arc::clone(&state);
         thread::spawn(move || {
             handle_client_reader(client, state, client_reader);
-            let mut players = state2.players.write().unwrap();
-            players.remove_entry(&client2.id);
         });
     }
 
@@ -689,7 +757,9 @@ pub fn handle_client_reader(
             }
         }
     }
-    *client.alive.write().unwrap() = false;
+    if let Some(client) = state.players.write().unwrap().remove(&client.id) {
+        *client.alive.write().unwrap() = false;
+    }
     trace!("client reader thread closed for {}", client.name);
 }
 
@@ -765,7 +835,97 @@ pub fn handle_server_reader(
             }
         }
     }
-    // TODO: server connection closing should not result in client connection closing
-    *client.alive.write().unwrap() = false;
     trace!("server reader thread closed for {}", client.name);
+}
+
+/// Gets the current unix time in milliseconds
+pub fn unix_time_millis() -> u128 {
+    match SystemTime::now().duration_since(SystemTime::UNIX_EPOCH) {
+        Ok(dur) => dur.as_millis(),
+        Err(e) => {
+            warn!("System time before unix epoch?: {}", e);
+            0
+        }
+    }
+}
+
+pub fn init(state: &mut SplinterState) {
+    state.client_packet_map.add_action(
+        PacketLatestKind::PlayClientKeepAlive,
+        Box::new(|client, state, lazy_packet| {
+            if let Ok(PacketLatest::PlayClientKeepAlive(body)) = lazy_packet.packet() {
+                let waiting = &mut *client.keep_alive_waiting.write().unwrap();
+                if let Some(ind) = waiting.iter().position(|millis| *millis == body.id) {
+                    waiting.remove(ind);
+                }
+            }
+            false
+        }),
+    );
+    state.server_packet_map.add_action(
+        PacketLatestKind::PlayServerKeepAlive,
+        Box::new(|client, server, state, lazy_packet| {
+            if let Ok(PacketLatest::PlayServerKeepAlive(body)) = lazy_packet.packet() {
+                if let Err(e) = write_packet_server(
+                    client,
+                    server,
+                    state,
+                    LazyDeserializedPacket::from_packet(PacketLatest::PlayClientKeepAlive(
+                        PlayClientKeepAliveSpec {
+                            id: body.id,
+                        },
+                    )),
+                ) {
+                    error!(
+                        "Failed to write keep alive packet to server {}: {}",
+                        server.id, e
+                    );
+                }
+            }
+            false
+        }),
+    );
+}
+
+pub fn init_post(state: Arc<SplinterState>) {
+    thread::spawn(move || {
+        loop {
+            thread::sleep(Duration::from_secs(15));
+            let clients = state.players.read().unwrap();
+            let keep_alive_millis = unix_time_millis() as i64;
+            let packet = PacketLatest::PlayServerKeepAlive(PlayServerKeepAliveSpec {
+                id: keep_alive_millis,
+            });
+            for (id, client) in clients.iter() {
+                if let Some(longest_millis) = client.keep_alive_waiting.read().unwrap().get(0) {
+                    if keep_alive_millis - longest_millis > 30 * 1000 {
+                        // if it's been more than 30 seconds since the longest awaiting keep alive packet
+                        // disconnect the client
+                        kick_client(client, &state, ClientKickReason::TimedOut);
+                        error!(
+                            "Client {} disconnected because they failed to return keep alive packets",
+                            client.name
+                        );
+                        continue;
+                    }
+                }
+                if let Err(e) = write_packet_client(
+                    client,
+                    &state,
+                    LazyDeserializedPacket::from_packet(packet.clone()),
+                ) {
+                    error!(
+                        "Failed to send keep alive packet to client {}, {}: {}",
+                        id, client.name, e
+                    );
+                } else {
+                    client
+                        .keep_alive_waiting
+                        .write()
+                        .unwrap()
+                        .push(keep_alive_millis);
+                }
+            }
+        }
+    });
 }
