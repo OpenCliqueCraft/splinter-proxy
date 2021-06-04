@@ -1,4 +1,5 @@
 /target
+servers/
 config.ron
 latest.log
 
