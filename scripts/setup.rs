@@ -101,6 +101,7 @@ fn main() {
 
     // set up waterfall server folders
     let waterfall_folder = format!("{}/waterfall", SERVER_DIR);
+    let waterfall_folder = waterfall_folder.as_str();
     create_server(waterfall_filename, waterfall_folder);
     println!("Removing {}", waterfall_filename);
     fs::remove_file(waterfall_filename).unwrap();
