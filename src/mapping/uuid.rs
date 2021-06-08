@@ -15,6 +15,18 @@ use crate::{
     state::SplinterState,
 };
 
+/// Generates a UUID v3 from the given bytes
+///
+/// \*Should\* be identical to https://github.com/AdoptOpenJDK/openjdk-jdk8u/blob/9a91972c76ddda5c1ce28b50ca38cbd8a30b7a72/jdk/src/share/classes/java/util/UUID.java#L153-L175  
+pub fn uuid_from_bytes(bytes: &[u8]) -> UUID4 {
+    let mut md5_bytes: [u8; 16] = md5::compute(bytes).into();
+    md5_bytes[6] &= 0x0f;
+    md5_bytes[6] |= 0x30;
+    md5_bytes[8] &= 0x3f;
+    md5_bytes[8] |= 0x80;
+    UUID4::from(u128::from_be_bytes(md5_bytes))
+}
+
 /// Maps a server-side UUID to a proxy-side UUID
 ///
 /// Will create a new mapping between the two UUIDS if no map exists

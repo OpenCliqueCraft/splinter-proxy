@@ -1,4 +1,9 @@
-use craftio_rs::CraftSyncWriter;
+use std::sync::Arc;
+
+use craftio_rs::{
+    CraftSyncWriter,
+    WriteError,
+};
 use mcproto_rs::{
     protocol::RawPacket,
     types::{
@@ -6,6 +11,7 @@ use mcproto_rs::{
         Chat,
         TextComponent,
     },
+    uuid::UUID4,
     v1_16_3::{
         ChatPosition,
         Packet753 as PacketLatest,
@@ -17,6 +23,7 @@ use mcproto_rs::{
 };
 
 use crate::{
+    commands::CommandSender,
     connection::{
         write_packet_client,
         write_packet_server,
@@ -25,8 +32,52 @@ use crate::{
         LazyDeserializedPacket,
         PacketMap,
     },
-    state::SplinterState,
+    state::{
+        SplinterClient,
+        SplinterState,
+    },
 };
+
+pub trait IntoChat {
+    fn into_chat(self) -> Chat;
+}
+impl IntoChat for String {
+    fn into_chat(self) -> Chat {
+        Chat::from_text(self.as_str())
+    }
+}
+impl IntoChat for &str {
+    fn into_chat(self) -> Chat {
+        Chat::from_text(self)
+    }
+}
+impl IntoChat for Chat {
+    fn into_chat(self) -> Chat {
+        self
+    }
+}
+
+pub fn send_message(
+    state: &Arc<SplinterState>,
+    sender: &CommandSender,
+    target: &Arc<SplinterClient>,
+    message: impl IntoChat,
+) -> Result<(), WriteError> {
+    write_packet_client(
+        target,
+        state,
+        LazyDeserializedPacket::from_packet(PacketLatest::PlayServerChatMessage(
+            PlayServerChatMessageSpec {
+                message: message.into_chat(),
+                position: match sender {
+                    CommandSender::Player(_) => ChatPosition::ChatBox,
+                    CommandSender::Console => ChatPosition::SystemMessage,
+                },
+                sender: sender.uuid(),
+            },
+        )),
+    )
+}
 
 /// Initializes chat handling
 pub fn init(state: &mut SplinterState) {
@@ -61,21 +112,11 @@ pub fn init(state: &mut SplinterState) {
                             _ => {
                                 let message = format!("{}: {}", client.name, data.message);
                                 for (_id, target) in state.players.read().unwrap().iter() {
-                                    if let Err(e) = write_packet_client(
-                                        target,
+                                    if let Err(e) = send_message(
                                         state,
-                                        LazyDeserializedPacket::from_packet(
-                                            PacketLatest::PlayServerChatMessage(
-                                                PlayServerChatMessageSpec {
-                                                    message: Chat::Text(TextComponent {
-                                                        text: message.clone(),
-                                                        base: BaseComponent::default(),
-                                                    }),
-                                                    position: ChatPosition::ChatBox,
-                                                    sender: client.uuid,
-                                                },
-                                            ),
-                                        ),
+                                        &CommandSender::Player(Arc::clone(&client)),
+                                        target,
+                                        message.as_str(),
                                     ) {
                                         error!(
                                             "Failed to send chat message from {} to {}: {}",

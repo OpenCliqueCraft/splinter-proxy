@@ -9,6 +9,8 @@ use std::{
     fs::File,
     net::ToSocketAddrs,
     sync::Arc,
+    thread,
+    time::Duration,
 };
 
 use simplelog::{
@@ -22,6 +24,7 @@ use simplelog::{
 };
 
 mod chat;
+mod commands;
 mod config;
 mod connection;
 mod mapping;
@@ -137,8 +140,21 @@ fn main() {
     mapping::uuid::init(&mut state);
     chat::init(&mut state);
     connection::init(&mut state);
+    commands::init(&mut state);
 
     let state_arc = Arc::new(state);
     connection::init_post(Arc::clone(&state_arc));
-    listen_for_clients(state_arc);
+    commands::init_post(Arc::clone(&state_arc));
+    {
+        let state_arc = Arc::clone(&state_arc);
+        thread::spawn(move || {
+            listen_for_clients(state_arc);
+        });
+    }
+    loop {
+        if !*state_arc.alive.read().unwrap() {
+            return;
+        }
+        thread::sleep(Duration::from_secs(1));
+    }
 }
