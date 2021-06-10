@@ -68,6 +68,7 @@ use crate::{
     config::SplinterProxyConfiguration,
     mapping::{
         eid::map_eid,
+        uuid::uuid_from_bytes,
         LazyDeserializedPacket,
         PacketMap,
     },
@@ -255,6 +256,28 @@ pub fn write_packet_client(
 pub enum ClientKickReason {
     /// Client failed to send a keep alive packet back in time
     TimedOut,
+    /// Client was directly kicked
+    Kicked(String, Option<String>),
+    /// Server shut down
+    Shutdown,
+}
+
+impl ClientKickReason {
+    pub fn text(&self) -> String {
+        match self {
+            ClientKickReason::TimedOut => "Timed out".into(),
+            ClientKickReason::Kicked(by, reason) => format!(
+                "Kicked by {}{}",
+                by,
+                if let Some(reason) = reason {
+                    format!(" because \"{}\"", reason)
+                } else {
+                    "".into()
+                }
+            ),
+            ClientKickReason::Shutdown => "Server shut down".into(),
+        }
+    }
 }
 
 /// Kicks a client from the proxy
@@ -263,14 +286,13 @@ pub fn kick_client(
     state: &Arc<SplinterState>,
     reason: ClientKickReason,
 ) {
+    info!("Kicking {}: {}", client.name, reason.text());
     if let Err(e) = write_packet_client(
         client,
         state,
         LazyDeserializedPacket::from_packet(PacketLatest::PlayDisconnect(PlayDisconnectSpec {
             reason: Chat::Text(TextComponent {
-                text: match reason {
-                    ClientKickReason::TimedOut => "Timed out".into(),
-                },
+                text: reason.text(),
                 base: BaseComponent::default(),
             }),
         })),
@@ -295,14 +317,14 @@ pub fn handle_login(
         name: Option<String>,
         server: Option<u64>,
         server_addr: Option<SocketAddr>,
-        uuid: UUID4,
+        uuid: Option<UUID4>,
         server_uuid: Option<UUID4>,
         settings: Option<PlayClientSettingsSpec>,
     }
     let mut client_data = PartialClient {
         name: None,
         server: None,
-        uuid: UUID4::random(),
+        uuid: None,
         server_uuid: None,
         server_addr: None,
         settings: None,
@@ -321,6 +343,9 @@ pub fn handle_login(
                 PacketLatest::LoginStart(data) => {
                     let name = data.name;
                     client_data.name = Some(name.clone());
+                    client_data.uuid = Some(uuid_from_bytes(
+                        format!("OfflinePlayer:{}", name).as_bytes(),
+                    ));
                     info!("\"{}\" attempting to log in from {}", name, client_addr);
                     // TODO: grab player location information and find server from that
                     let player_loc = Vector2 {
@@ -419,13 +444,13 @@ pub fn handle_login(
                     }
                     client_data.server_uuid = Some(body.uuid);
                     state.uuid_table.write().unwrap().insert(
-                        client_data.uuid,
+                        client_data.uuid.unwrap(),
                         (
                             client_data.server.unwrap(),
                             client_data.server_uuid.unwrap(),
                         ),
                     );
-                    body.uuid = client_data.uuid;
+                    body.uuid = client_data.uuid.unwrap();
                     match client_conn.write_packet(PacketLatest::LoginSuccess(body)) {
                         Ok(()) => {
                             debug!("Relaying login packet to server for {}", name)
@@ -644,7 +669,7 @@ pub fn handle_login(
         id: state.player_id_gen.lock().unwrap().take_id(),
         name: client_data.name.unwrap(),
         writer: Mutex::new(client_writer),
-        uuid: client_data.uuid,
+        uuid: client_data.uuid.unwrap(),
         active_server: RwLock::new(client_data.server.unwrap()),
         servers: RwLock::new(HashMap::new()),
         alive: RwLock::new(true),
@@ -670,9 +695,7 @@ pub fn handle_login(
     // client reader
     {
         let client = Arc::clone(&splinter_client);
-        let client2 = Arc::clone(&splinter_client);
         let state = Arc::clone(&state);
-        let state2 = Arc::clone(&state);
         thread::spawn(move || {
             handle_client_reader(client, state, client_reader);
         });
@@ -852,7 +875,7 @@ pub fn unix_time_millis() -> u128 {
 pub fn init(state: &mut SplinterState) {
     state.client_packet_map.add_action(
         PacketLatestKind::PlayClientKeepAlive,
-        Box::new(|client, state, lazy_packet| {
+        Box::new(|client, _state, lazy_packet| {
             if let Ok(PacketLatest::PlayClientKeepAlive(body)) = lazy_packet.packet() {
                 let waiting = &mut *client.keep_alive_waiting.write().unwrap();
                 if let Some(ind) = waiting.iter().position(|millis| *millis == body.id) {

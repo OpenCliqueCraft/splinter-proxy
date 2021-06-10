@@ -28,6 +28,7 @@ use mcproto_rs::{
         PacketErr,
     },
     types::{
+        Chat,
         CountedArray,
         VarInt,
     },
@@ -41,7 +42,9 @@ use mcproto_rs::{
 };
 
 use crate::{
+    commands::SplinterCommand,
     config::SplinterProxyConfiguration,
+    connection::write_packet_client,
     mapping::{
         ClientPacketMap,
         IdGenerator,
@@ -130,6 +133,9 @@ pub struct EntityData {
 
 /// Global state for the splinter proxy
 pub struct SplinterState {
+    /// Whether the proxy is alive
+    pub alive: RwLock<bool>,
+    /// Zoner for the world
     pub zoner: RwLock<Zoner>,
     /// Configuration
     pub config: RwLock<SplinterProxyConfiguration>,
@@ -153,6 +159,8 @@ pub struct SplinterState {
     pub eid_data: RwLock<HashMap<i32, EntityData>>,
     /// Table to map between proxy uuids and server uids
     pub uuid_table: RwLock<BiHashMap<UUID4, (u64, UUID4)>>,
+    /// Hashmap of commands
+    pub commands: HashMap<String, SplinterCommand>,
 }
 
 /// Server state
@@ -208,6 +216,7 @@ impl SplinterState {
     /// Creates a new splinter state given the proxy configuration
     pub fn new(config: SplinterProxyConfiguration, zoner: Zoner) -> SplinterState {
         SplinterState {
+            alive: RwLock::new(true),
             zoner: RwLock::new(zoner),
             config: RwLock::new(config),
             players: RwLock::new(HashMap::new()),
@@ -221,7 +230,16 @@ impl SplinterState {
             eid_gen: Mutex::new(IdGenerator::new()),
             eid_data: RwLock::new(HashMap::new()),
             uuid_table: RwLock::new(BiHashMap::new()),
+            commands: HashMap::new(),
         }
+    }
+    pub fn find_client_by_name(&self, name: &str) -> Option<Arc<SplinterClient>> {
+        self.players
+            .read()
+            .unwrap()
+            .iter()
+            .find(|(_, client)| client.name == name)
+            .map(|(_, client_arc)| Arc::clone(client_arc))
     }
 }
 
