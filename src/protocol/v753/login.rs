@@ -10,7 +10,11 @@ use craftio_rs::{
     CraftIo,
 };
 use mcproto_rs::{
-    protocol::State,
+    protocol::{
+        HasPacketKind,
+        PacketDirection,
+        State,
+    },
     v1_16_3::{
         ClientChatMode,
         ClientDisplayedSkinParts,
@@ -63,24 +67,26 @@ pub async fn handle_client_login(
     let mut server_conn: Option<AsyncCraftConnection> = None;
     let mut server_id_opt: Option<u64> = None;
     let mut server_opt = None;
+    let mut next_sender = PacketDirection::ServerBound;
     loop {
-        let packet = if server_conn.is_none() {
-            client_conn_reader
-                .read_packet_async::<RawPacket753>()
-                .await?
-        } else {
-            future::or(
-                client_conn_reader.read_packet_async::<RawPacket753>(),
+        let packet = match next_sender {
+            PacketDirection::ServerBound => {
+                client_conn_reader
+                    .read_packet_async::<RawPacket753>()
+                    .await?
+            }
+            PacketDirection::ClientBound => {
                 server_conn
                     .as_mut()
                     .unwrap()
-                    .read_packet_async::<RawPacket753>(),
-            )
-            .await?
+                    .read_packet_async::<RawPacket753>()
+                    .await?
+            }
         };
         if let Some(packet) = packet {
             match packet {
                 Packet753::LoginStart(data) => {
+                    // debug!("got login start from client");
                     client.set_name(data.name);
                     info!("\"{}\" logging in from {}", &client.name, addr);
                     client.active_server_id = 0u64; // todo: zoning
@@ -133,8 +139,10 @@ pub async fn handle_client_login(
                     server_id_opt = Some(client.active_server_id);
                     server_opt = Some(server);
                     server_conn = Some(server_connection);
+                    next_sender = PacketDirection::ClientBound;
                 }
                 Packet753::LoginSetCompression(body) => {
+                    // debug!("got set compression from server");
                     let threshold = *body.threshold;
                     server_conn
                         .as_mut()
@@ -144,8 +152,10 @@ pub async fn handle_client_login(
                         } else {
                             None
                         });
+                    next_sender = PacketDirection::ClientBound;
                 }
                 Packet753::LoginSuccess(mut body) => {
+                    // debug!("got login success from server");
                     if let Some(threshold) = proxy.config.compression_threshold {
                         if let Err(e) = client
                             .writer
@@ -164,11 +174,18 @@ pub async fn handle_client_login(
                                 e
                             );
                         }
+                        client
+                            .writer
+                            .lock()
+                            .await
+                            .set_compression_threshold(Some(threshold));
+                        client_conn_reader.set_compression_threshold(Some(threshold));
                     }
                     let mut lock = proxy.mapping.lock().await;
                     lock.uuids
                         .insert(client.uuid, (client.active_server_id, body.uuid));
-                    body.uuid = lock.map_uuid_server_to_proxy(client.active_server_id, body.uuid);
+                    // body.uuid = lock.map_uuid_server_to_proxy(client.active_server_id, body.uuid);
+                    body.uuid = client.uuid;
                     client
                         .writer
                         .lock()
@@ -185,22 +202,11 @@ pub async fn handle_client_login(
                     client_conn_reader.set_state(State::Play);
                     client.writer.lock().await.set_state(State::Play);
                     server_conn.as_mut().unwrap().set_state(State::Play);
-                    client
-                        .writer
-                        .lock()
-                        .await
-                        .write_packet_async(Packet753::PlayServerPluginMessage(
-                            PlayServerPluginMessageSpec {
-                                channel: "minecraft:brand".into(),
-                                data: [&[6u8], "Splinter".as_bytes()].concat().into(),
-                            },
-                        ))
-                        .await
-                        .map_err(|e| {
-                            anyhow!("Failed to send brand to client {}: {}", client.name, e)
-                        })?;
+                    // debug!("set client and server connection states to play");
+                    next_sender = PacketDirection::ClientBound;
                 }
                 Packet753::PlayJoinGame(mut body) => {
+                    // debug!("got join game from server");
                     body.entity_id = proxy
                         .mapping
                         .lock()
@@ -214,16 +220,35 @@ pub async fn handle_client_login(
                         .await
                         .map_err(|e| {
                             anyhow!(
-                                "Failed to relay join game packet for {}: {}",
+                                "Failed to relay join game packet for \"{}\": {}",
                                 client.name,
                                 e
                             )
                         })?;
+                    client
+                        .writer
+                        .lock()
+                        .await
+                        .write_packet_async(Packet753::PlayServerPluginMessage(
+                            PlayServerPluginMessageSpec {
+                                channel: "minecraft:brand".into(),
+                                data: [&[8u8], "Splinter".as_bytes()].concat().into(), // this is just a string. that first number there is the number of characters.
+                            },
+                        ))
+                        .await
+                        .map_err(|e| {
+                            anyhow!("Failed to send brand to client {}: {}", client.name, e)
+                        })?;
+                    // debug!("wrote plugin message to client");
+                    next_sender = PacketDirection::ServerBound;
                 }
                 Packet753::PlayClientPluginMessage(body) => {
+                    // debug!("got plugin message from client: {:?}", body);
                     //...
+                    next_sender = PacketDirection::ServerBound;
                 }
                 Packet753::PlayClientSettings(body) => {
+                    // debug!("got client settings from client");
                     *client.settings.lock().await = body.clone().into();
                     server_conn
                         .as_mut()
@@ -254,12 +279,15 @@ pub async fn handle_client_login(
                                 )
                             })?;
                     }
+                    next_sender = PacketDirection::ClientBound;
                 }
                 packet
                 @
                 (Packet753::PlayServerDifficulty(_)
                 | Packet753::PlayServerPlayerAbilities(_)
-                | Packet753::PlayDeclareRecipes(_)) => {
+                | Packet753::PlayDeclareRecipes(_)
+                | Packet753::PlayServerHeldItemChange(_)) => {
+                    // debug!("got {:?}", packet.kind());
                     client
                         .writer
                         .lock()
@@ -269,8 +297,10 @@ pub async fn handle_client_login(
                         .map_err(|e| {
                             anyhow!("Failed to relay server packet to {}: {}", &client.name, e)
                         })?;
+                    next_sender = PacketDirection::ClientBound;
                 }
                 Packet753::PlayTags(body) => {
+                    // debug!("got tags from server");
                     if proxy.tags.lock().await.is_none() {
                         let tags = Tags::from(&body);
                         {
@@ -296,13 +326,14 @@ pub async fn handle_client_login(
                 _ => warn!("Unexpected packet from {}: {:?}", addr, packet),
             }
         } else {
-            info!(
+            bail!(
                 "Client \"{}\", {} connection closed during login",
-                client.name, addr
+                client.name,
+                addr,
             );
-            break;
         }
     }
+    // debug!("moving on");
     let (server_conn_reader, server_conn_writer) = server_conn.unwrap().into_split();
     let server_conn_arc = Arc::new(Mutex::new(SplinterServerConnection {
         writer: server_conn_writer,
@@ -317,7 +348,7 @@ pub async fn handle_client_login(
     let client_arc = Arc::new(client);
 
     // move on to relay loop
-    future::zip(
+    let (res_a, res_b) = future::zip(
         super::handle_client_relay(
             Arc::clone(&proxy),
             Arc::clone(&client_arc),
@@ -332,6 +363,8 @@ pub async fn handle_client_login(
         ),
     )
     .await;
+    res_a?;
+    res_b?;
     Ok(())
 }
 

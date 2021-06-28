@@ -18,7 +18,10 @@ use mcproto_rs::{
 
 use crate::{
     events::LazyDeserializedPacket,
-    protocol::PacketSender,
+    protocol::{
+        ConnectionVersion,
+        PacketSender,
+    },
 };
 
 pub mod eid;
@@ -42,13 +45,6 @@ impl SplinterMapping {
     }
 }
 
-pub trait EidMappable<'a, T>
-where
-    T: RawPacket<'a> + HasPacketKind,
-    T::Packet: HasPacketKind<Kind = T::Kind>,
-{
-    fn map_eid(&mut self, packet: &'a mut T::Packet, sender: PacketSender) -> Option<u64>;
-}
 pub struct EntityData {
     pub id: i32,
     pub entity_type: i32,

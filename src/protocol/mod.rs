@@ -188,8 +188,8 @@ pub async fn handle_handshake(
     Ok(())
 }
 
-pub enum PacketSender {
-    Server(Arc<SplinterServer>),
+pub enum PacketSender<'a> {
+    Server(&'a Arc<SplinterServer>),
     Proxy,
 }
 

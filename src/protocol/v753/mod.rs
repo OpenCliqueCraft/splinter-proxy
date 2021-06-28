@@ -9,7 +9,10 @@ use craftio_rs::{
     CraftIo,
 };
 use mcproto_rs::{
-    protocol::State,
+    protocol::{
+        HasPacketKind,
+        State,
+    },
     v1_16_3::{
         HandshakeNextState,
         Packet753,
@@ -25,6 +28,7 @@ use super::{
     version::V753,
     AsyncCraftConnection,
     AsyncCraftReader,
+    PacketSender,
 };
 use crate::{
     client::SplinterClient,
@@ -40,9 +44,11 @@ use crate::{
 mod eid;
 mod login;
 mod tags;
+mod uuid;
 pub use eid::*;
 pub use login::*;
 pub use tags::*;
+pub use uuid::*;
 
 pub async fn handle_client_status(
     mut conn: AsyncCraftConnection,
@@ -96,10 +102,22 @@ pub async fn handle_server_relay(
         };
         match packet_opt {
             Some(raw_packet) => {
-                let lazy_packet =
+                let mut lazy_packet =
                     LazyDeserializedPacket::<version::V753>::from_raw_packet(raw_packet);
-                // TODO: map stuff
-                let writer = &mut server_conn.lock().await.writer;
+                // eid and uuid mapping
+                {
+                    let map = &mut *proxy.mapping.lock().await;
+                    if let Ok(packet) = lazy_packet.packet() {
+                        if has_eids(packet.kind()) {
+                            map_eid(map, packet, PacketSender::Server(&server));
+                        }
+                        if has_uuids(packet.kind()) {
+                            map_uuid(map, packet, PacketSender::Server(&server));
+                        }
+                    }
+                }
+                let writer = &mut *client.writer.lock().await;
+                // let writer = &mut server_conn.lock().await.writer;
                 if lazy_packet.is_deserialized() {
                     if let Err(e) = writer
                         .write_packet_async(match lazy_packet.into_packet() {
@@ -169,9 +187,20 @@ pub async fn handle_client_relay(
         };
         match packet_opt {
             Some(raw_packet) => {
-                let lazy_packet =
+                let mut lazy_packet =
                     LazyDeserializedPacket::<version::V753>::from_raw_packet(raw_packet);
-                // TODO: map stuff
+                // eid and uuid mapping
+                {
+                    let map = &mut *proxy.mapping.lock().await;
+                    if let Ok(packet) = lazy_packet.packet() {
+                        if has_eids(packet.kind()) {
+                            map_eid(map, packet, PacketSender::Proxy);
+                        }
+                        if has_uuids(packet.kind()) {
+                            map_uuid(map, packet, PacketSender::Proxy);
+                        }
+                    }
+                }
                 let mut server = client.servers.lock().await;
                 let writer = &mut server
                     .get_mut(&client.active_server_id)
@@ -180,13 +209,14 @@ pub async fn handle_client_relay(
                     .await
                     .writer; // TODO: take a look at this double lock
                 if lazy_packet.is_deserialized() {
+                    let kind = lazy_packet.kind();
                     if let Err(e) = writer
                         .write_packet_async(match lazy_packet.into_packet() {
                             Ok(packet) => packet,
                             Err(e) => {
                                 error!(
-                                    "Failed to parse packet from {}, {}: {}",
-                                    &client.name, client_addr, e
+                                    "Failed to parse packet {:?} from {}, {}: {}",
+                                    kind, &client.name, client_addr, e
                                 );
                                 continue;
                             }
