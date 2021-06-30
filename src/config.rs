@@ -87,7 +87,7 @@ impl SplinterConfig {
                     .iter()
                     .map(|(name, client)| StatusPlayerSampleSpec {
                         name: name.clone(),
-                        id: client.uuid,
+                        id: client.uuid(),
                     })
                     .collect::<Vec<StatusPlayerSampleSpec>>(),
             },

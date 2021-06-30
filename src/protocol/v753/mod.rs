@@ -14,8 +14,10 @@ use mcproto_rs::{
         State,
     },
     v1_16_3::{
+        ChatPosition,
         HandshakeNextState,
         Packet753,
+        PlayServerChatMessageSpec,
         RawPacket753,
         StatusPongSpec,
         StatusRequestSpec,
@@ -31,7 +33,9 @@ use super::{
     PacketSender,
 };
 use crate::{
+    chat::ToChat,
     client::SplinterClient,
+    commands::CommandSender,
     events::LazyDeserializedPacket,
     mapping::SplinterMapping,
     protocol::{
@@ -267,4 +271,48 @@ pub async fn handle_client_relay(
         client.name, client_addr
     );
     Ok(())
+}
+
+impl SplinterClient<V753> {
+    pub async fn write_packet<'a>(
+        &self,
+        packet: LazyDeserializedPacket<'a, V753>,
+    ) -> anyhow::Result<()> {
+        if packet.is_deserialized() {
+            self.writer
+                .lock()
+                .await
+                .write_packet_async(
+                    packet
+                        .into_packet()
+                        .map_err(|e| anyhow!(format!("{}", e)))?,
+                )
+                .await
+                .map_err(|e| anyhow!(format!("{}", e)))
+        } else {
+            self.writer
+                .lock()
+                .await
+                .write_raw_packet_async(packet.into_raw_packet().unwrap())
+                .await
+                .map_err(|e| anyhow!(e))
+        }
+    }
+    pub async fn send_message(
+        &self,
+        msg: impl ToChat,
+        sender: &CommandSender,
+    ) -> anyhow::Result<()> {
+        self.write_packet(LazyDeserializedPacket::<V753>::from_packet(
+            Packet753::PlayServerChatMessage(PlayServerChatMessageSpec {
+                message: msg.to_chat(),
+                position: match sender {
+                    CommandSender::Player(_) => ChatPosition::ChatBox,
+                    CommandSender::Console => ChatPosition::SystemMessage,
+                },
+                sender: sender.uuid(),
+            }),
+        ))
+        .await
+    }
 }

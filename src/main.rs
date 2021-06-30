@@ -9,7 +9,9 @@ extern crate simplelog;
 
 use std::sync::Arc;
 
+mod chat;
 mod client;
+mod commands;
 mod config;
 mod events;
 mod logging;

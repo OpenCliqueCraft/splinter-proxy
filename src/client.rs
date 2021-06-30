@@ -13,7 +13,10 @@ use std::{
 
 use async_compat::CompatExt;
 use async_dup::Arc as AsyncArc;
-use craftio_rs::CraftConnection;
+use craftio_rs::{
+    CraftAsyncWriter,
+    CraftConnection,
+};
 use mcproto_rs::{
     protocol::{
         HasPacketKind,
@@ -29,10 +32,17 @@ use smol::{
 
 use self::events::ClientEvents;
 use crate::{
+    chat::ToChat,
     client::events::ProxyToServerDispatcher,
+    commands::CommandSender,
+    events::LazyDeserializedPacket,
     mapping,
     protocol::{
         self,
+        version::{
+            V753,
+            V755,
+        },
         AsyncCraftWriter,
         ConnectionVersion,
         ProtocolVersion,
@@ -53,12 +63,13 @@ where
     pub servers: Mutex<HashMap<u64, Arc<Mutex<SplinterServerConnection>>>>,
     pub active_server_id: u64,
     pub event: Mutex<ClientEvents<T>>,
+    pub proxy: Arc<SplinterProxy>,
 }
 impl<T> SplinterClient<T>
 where
     for<'a> T: ConnectionVersion<'a>,
 {
-    pub fn new(name: String, writer: AsyncCraftWriter) -> Self {
+    pub fn new(proxy: Arc<SplinterProxy>, name: String, writer: AsyncCraftWriter) -> Self {
         Self {
             name: name.clone(),
             writer: Mutex::new(writer),
@@ -73,12 +84,42 @@ where
                     action: Box::new(|proxy, event| {}), // TODO
                 },
             }),
+            proxy,
         }
     }
     pub fn set_name(&mut self, name: String) {
         self.name = name;
         self.uuid =
             mapping::uuid::uuid_from_bytes(format!("OfflinePlayer:{}", &self.name).as_bytes());
+    }
+}
+
+pub enum SplinterClientVersion {
+    V753(SplinterClient<V753>),
+    V755(SplinterClient<V755>),
+}
+impl SplinterClientVersion {
+    pub fn name<'a>(&'a self) -> &'a str {
+        match self {
+            SplinterClientVersion::V753(client) => client.name.as_str(),
+            SplinterClientVersion::V755(client) => client.name.as_str(),
+        }
+    }
+    pub fn uuid(&self) -> UUID4 {
+        match self {
+            SplinterClientVersion::V753(client) => client.uuid,
+            SplinterClientVersion::V755(client) => client.uuid,
+        }
+    }
+    pub async fn send_message(
+        &self,
+        chat: impl ToChat,
+        sender: &CommandSender,
+    ) -> anyhow::Result<()> {
+        match self {
+            SplinterClientVersion::V753(client) => client.send_message(chat, sender).await,
+            SplinterClientVersion::V755(client) => todo!(), // client.send_message(chat).await,
+        }
     }
 }
 

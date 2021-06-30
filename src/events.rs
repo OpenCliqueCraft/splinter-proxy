@@ -3,6 +3,7 @@ use std::{
     sync::Arc,
 };
 
+use craftio_rs::CraftAsyncWriter;
 use mcproto_rs::{
     protocol::{
         HasPacketKind,
@@ -15,7 +16,14 @@ use smol::channel;
 
 use crate::{
     client::SplinterClient,
-    protocol::ConnectionVersion,
+    protocol::{
+        version::{
+            V753,
+            V755,
+        },
+        AsyncCraftWriter,
+        ConnectionVersion,
+    },
     proxy::SplinterProxy,
     server::SplinterServerConnection,
 };

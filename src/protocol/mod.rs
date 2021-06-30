@@ -1,5 +1,6 @@
 use std::{
     collections::HashMap,
+    fmt::Debug,
     net::{
         SocketAddr,
         TcpStream,
@@ -163,28 +164,6 @@ pub async fn handle_handshake(
         ),
         None => {}
     }
-    // match  {
-    //     Some(Packet753::Handshake(body)) => match body.next_state {
-    //         HandshakeNextState::Status => {
-    //             handle_client_status(conn, addr, proxy).await;
-    //         }
-    //         HandshakeNextState::Login => {
-    //             // make sure version is appropriate
-    //             let ver = ProtocolVersion::from_number(*body.version)?;
-    //             if ver == proxy.protocol {
-    //                 handle_client_login(conn, addr, proxy).await
-    //             } else {
-    //                 bail!(
-    //                     "Client has incorrect protocol version to join; client has {}, expected one that satisfies{:?}",
-    //                     *body.version,
-    //                     proxy.protocol,
-    //                 );
-    //             }
-    //         }
-    //     },
-    //     Some(packet) => bail!("Got unexpected packet: {:?}", packet),
-    //     None => Ok(()),
-    // }
     Ok(())
 }
 
@@ -194,7 +173,7 @@ pub enum PacketSender<'a> {
 }
 
 pub trait ConnectionVersion<'a> {
-    type Protocol: RawPacket<'a> + HasPacketKind;
+    type Protocol: RawPacket<'a> + HasPacketKind + Send + Sync;
 }
 pub mod version {
     use mcproto_rs::{

@@ -63,7 +63,8 @@ pub async fn handle_client_login(
 ) -> anyhow::Result<()> {
     conn.set_state(State::Login);
     let (mut client_conn_reader, client_conn_writer) = conn.into_split();
-    let mut client = SplinterClient::<version::V753>::new(String::new(), client_conn_writer);
+    let mut client =
+        SplinterClient::<version::V753>::new(Arc::clone(&proxy), String::new(), client_conn_writer);
     let mut server_conn: Option<AsyncCraftConnection> = None;
     let mut server_id_opt: Option<u64> = None;
     let mut server_opt = None;
