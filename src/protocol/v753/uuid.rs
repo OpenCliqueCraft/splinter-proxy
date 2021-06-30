@@ -9,10 +9,22 @@ use mcproto_rs::{
     },
 };
 
+use super::RelayPassFn;
 use crate::{
     mapping::SplinterMapping,
     protocol::PacketSender,
 };
+
+inventory::submit! {
+    RelayPassFn(Box::new(|proxy, sender, mut lazy_packet, map| {
+        if has_uuids(lazy_packet.kind()) {
+            if let Ok(ref mut packet) = lazy_packet.packet() {
+                return map_uuid(map, packet, sender);
+            }
+        }
+        None
+    }))
+}
 
 pub fn has_uuids(kind: Packet753Kind) -> bool {
     matches!(

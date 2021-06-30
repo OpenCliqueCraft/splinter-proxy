@@ -8,6 +8,7 @@ use mcproto_rs::{
     },
 };
 
+use super::RelayPassFn;
 use crate::{
     mapping::{
         EntityData,
@@ -15,6 +16,17 @@ use crate::{
     },
     protocol::PacketSender,
 };
+
+inventory::submit! {
+    RelayPassFn(Box::new(|proxy, sender, mut lazy_packet, map| {
+        if has_eids(lazy_packet.kind()) {
+            if let Ok(ref mut packet) = lazy_packet.packet() {
+                return map_eid(map, packet, sender);
+            }
+        }
+        None
+    }))
+}
 
 pub fn has_eids(kind: Packet753Kind) -> bool {
     matches!(
@@ -93,7 +105,11 @@ pub fn map_eid(
                     }
                 }
                 Packet753::PlayAttachEntity(body) => (
-                    vec![&mut body.attached_entity_id, &mut body.holding_entity_id],
+                    if body.holding_entity_id < 0 {
+                        vec![&mut body.attached_entity_id]
+                    } else {
+                        vec![&mut body.attached_entity_id, &mut body.holding_entity_id]
+                    },
                     vec![],
                 ),
                 Packet753::PlayCollectItem(body) => (
@@ -121,6 +137,7 @@ pub fn map_eid(
                         id: *body.entity_id,
                         entity_type,
                     });
+                    // debug!("entity spawn type: {}", entity_type);
                     (
                         match entity_type {
                             107 => {
@@ -136,7 +153,10 @@ pub fn map_eid(
                                 }
                                 vec![]
                             }
-                            _ => vec![],
+                            _ => {
+                                // debug!("got type entity spawn type without eid {}", entity_type);
+                                vec![]
+                            }
                         },
                         vec![&mut body.entity_id],
                     )
@@ -173,6 +193,7 @@ pub fn map_eid(
                 Packet753::PlayEntityMetadata(body) => {
                     // we specially need to handle mapping here for the proxy side eid
                     let proxy_eid = map.map_eid_server_to_proxy(server.id, *body.entity_id);
+                    body.entity_id = proxy_eid.into();
                     if let Some(data) = map.entity_data.get(&proxy_eid) {
                         match data.entity_type {
                             27 => {
@@ -199,7 +220,11 @@ pub fn map_eid(
                                                 .map_eid_server_to_proxy(server.id, found_id - 1)
                                                 + 1)
                                             .into();
-                                            debug!("mapped hook id");
+                                            // debug!(
+                                            //     "mapped hook id {} to {}",
+                                            //     found_id - 1,
+                                            //     **id - 1
+                                            // );
                                         }
                                     }
                                 }
@@ -249,6 +274,7 @@ pub fn map_eid(
                         if let Some((proxy_eid, _)) =
                             map.eids.remove_by_right(&(server.id, server_eid))
                         {
+                            // debug!("destroying map s->p {} to {}", server_eid, proxy_eid);
                             map.entity_data.remove(&proxy_eid);
                             map.eid_gen.return_id(proxy_eid as u64);
                         }

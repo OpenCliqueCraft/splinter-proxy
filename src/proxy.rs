@@ -9,6 +9,7 @@ use std::{
         Arc,
         RwLock,
     },
+    time::Duration,
 };
 
 use mcproto_rs::{
@@ -18,6 +19,7 @@ use mcproto_rs::{
 use smol::{
     lock::Mutex,
     Async,
+    Timer,
 };
 
 use crate::{
@@ -100,6 +102,7 @@ pub async fn run(proxy: Arc<SplinterProxy>) -> anyhow::Result<()> {
         if !proxy.is_alive() {
             break;
         }
+        Timer::after(Duration::from_secs(1)).await; // sleep so we're not constantly taking up a thread just for this
     }
     Ok(())
 }

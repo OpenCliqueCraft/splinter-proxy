@@ -33,6 +33,7 @@ use super::{
 use crate::{
     client::SplinterClient,
     events::LazyDeserializedPacket,
+    mapping::SplinterMapping,
     protocol::{
         version,
         ProtocolVersion,
@@ -81,6 +82,21 @@ pub async fn handle_client_status(
     Ok(())
 }
 
+pub struct RelayPassFn(
+    pub  Box<
+        dyn Send
+            + Sync
+            + Fn(
+                &Arc<SplinterProxy>,
+                PacketSender,
+                &mut LazyDeserializedPacket<V753>,
+                &mut SplinterMapping,
+            ) -> Option<u64>,
+    >,
+);
+
+inventory::collect!(RelayPassFn);
+
 pub async fn handle_server_relay(
     proxy: Arc<SplinterProxy>,
     client: Arc<SplinterClient<V753>>,
@@ -104,20 +120,11 @@ pub async fn handle_server_relay(
             Some(raw_packet) => {
                 let mut lazy_packet =
                     LazyDeserializedPacket::<version::V753>::from_raw_packet(raw_packet);
-                // eid and uuid mapping
-                {
-                    let map = &mut *proxy.mapping.lock().await;
-                    if let Ok(packet) = lazy_packet.packet() {
-                        if has_eids(packet.kind()) {
-                            map_eid(map, packet, PacketSender::Server(&server));
-                        }
-                        if has_uuids(packet.kind()) {
-                            map_uuid(map, packet, PacketSender::Server(&server));
-                        }
-                    }
+                let map = &mut *proxy.mapping.lock().await;
+                for pass in inventory::iter::<RelayPassFn> {
+                    (pass.0)(&proxy, PacketSender::Server(&server), &mut lazy_packet, map);
                 }
                 let writer = &mut *client.writer.lock().await;
-                // let writer = &mut server_conn.lock().await.writer;
                 if lazy_packet.is_deserialized() {
                     if let Err(e) = writer
                         .write_packet_async(match lazy_packet.into_packet() {
@@ -161,6 +168,10 @@ pub async fn handle_server_relay(
         }
     }
     server_conn.lock().await.alive = false;
+    info!(
+        "Server connection between {} and server id {} closed",
+        client.name, server.id
+    );
     Ok(())
 }
 
@@ -189,17 +200,9 @@ pub async fn handle_client_relay(
             Some(raw_packet) => {
                 let mut lazy_packet =
                     LazyDeserializedPacket::<version::V753>::from_raw_packet(raw_packet);
-                // eid and uuid mapping
-                {
-                    let map = &mut *proxy.mapping.lock().await;
-                    if let Ok(packet) = lazy_packet.packet() {
-                        if has_eids(packet.kind()) {
-                            map_eid(map, packet, PacketSender::Proxy);
-                        }
-                        if has_uuids(packet.kind()) {
-                            map_uuid(map, packet, PacketSender::Proxy);
-                        }
-                    }
+                let map = &mut *proxy.mapping.lock().await;
+                for pass in inventory::iter::<RelayPassFn> {
+                    (pass.0)(&proxy, PacketSender::Proxy, &mut lazy_packet, map);
                 }
                 let mut server = client.servers.lock().await;
                 let writer = &mut server

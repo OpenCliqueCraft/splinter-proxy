@@ -21,26 +21,6 @@ use crate::{
 };
 
 pub type SplinterEventFn<T> = Box<dyn Sync + Send + FnMut(&SplinterProxy, &mut T)>;
-pub type SplinterEventSender<T> = Arc<channel::Sender<SplinterEventFn<T>>>;
-pub struct SplinterEventReceiver<T> {
-    pub receiver: channel::Receiver<SplinterEventFn<T>>,
-    pub listeners: Vec<SplinterEventFn<T>>,
-}
-impl<T> SplinterEventReceiver<T> {
-    pub fn new() -> (SplinterEventReceiver<T>, SplinterEventSender<T>) {
-        let (sender, receiver): (
-            channel::Sender<SplinterEventFn<T>>,
-            channel::Receiver<SplinterEventFn<T>>,
-        ) = channel::unbounded();
-        (
-            SplinterEventReceiver {
-                receiver,
-                listeners: vec![],
-            },
-            Arc::new(sender),
-        )
-    }
-}
 
 /// A packet that is lazily deserialized when the deserialized packet is accessed
 pub struct LazyDeserializedPacket<'a, T>
