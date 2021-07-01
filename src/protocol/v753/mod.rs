@@ -38,7 +38,10 @@ use super::{
 };
 use crate::{
     chat::ToChat,
-    client::SplinterClient,
+    client::{
+        SplinterClient,
+        SplinterClientVersion,
+    },
     commands::CommandSender,
     events::LazyDeserializedPacket,
     mapping::SplinterMapping,
@@ -53,10 +56,12 @@ use crate::{
     server::SplinterServerConnection,
 };
 
+mod chat;
 mod eid;
 mod login;
 mod tags;
 mod uuid;
+pub use chat::*;
 pub use eid::*;
 pub use login::*;
 pub use tags::*;
@@ -220,7 +225,8 @@ pub async fn handle_client_relay(
     mut client_reader: AsyncCraftReader,
     client_addr: SocketAddr,
 ) -> anyhow::Result<()> {
-    let sender = PacketSender::Proxy;
+    let client_v_arc = Arc::new(SplinterClientVersion::V753(Arc::clone(&client)));
+    let sender = PacketSender::Proxy(&client_v_arc);
     loop {
         // client->proxy->server
         if !*client.alive.lock().await {
@@ -241,7 +247,8 @@ pub async fn handle_client_relay(
                 let mut lazy_packet =
                     LazyDeserializedPacket::<version::V753>::from_raw_packet(raw_packet);
                 let map = &mut *proxy.mapping.lock().await;
-                let mut destination = PacketDestination::Server(client.active_server_id);
+                let mut destination =
+                    PacketDestination::Server(*client.active_server_id.read().unwrap());
                 for pass in inventory::iter::<RelayPassFn> {
                     (pass.0)(&proxy, &sender, &mut lazy_packet, map, &mut destination);
                 }
@@ -251,55 +258,6 @@ pub async fn handle_client_relay(
                         &client.name, e
                     );
                 }
-                // let mut server = client.servers.lock().await;
-                // let writer = &mut server
-                //     .get_mut(&client.active_server_id)
-                //     .unwrap()
-                //     .lock()
-                //     .await
-                //     .writer; // TODO: take a look at this double lock
-                // if lazy_packet.is_deserialized() {
-                //     let kind = lazy_packet.kind();
-                //     if let Err(e) = writer
-                //         .write_packet_async(match lazy_packet.into_packet() {
-                //             Ok(packet) => packet,
-                //             Err(e) => {
-                //                 error!(
-                //                     "Failed to parse packet {:?} from {}, {}: {}",
-                //                     kind, &client.name, client_addr, e
-                //                 );
-                //                 continue;
-                //             }
-                //         })
-                //         .await
-                //     {
-                //         error!(
-                //             "Failed to relay modified packet from {}, {} to server id {}: {}",
-                //             &client.name, client_addr, client.active_server_id, e
-                //         );
-                //         continue;
-                //     }
-                // } else {
-                //     if let Err(e) = writer
-                //         .write_raw_packet_async(match lazy_packet.into_raw_packet() {
-                //             Some(packet) => packet,
-                //             None => {
-                //                 error!(
-                //                     "Failed to get raw packet when there is none {}, {}",
-                //                     &client.name, client_addr
-                //                 );
-                //                 continue;
-                //             }
-                //         })
-                //         .await
-                //     {
-                //         error!(
-                //             "Failed to relay raw packet from {}, {} to server id {}: {}",
-                //             &client.name, client_addr, client.active_server_id, e
-                //         );
-                //         continue;
-                //     }
-                // }
             }
             None => {
                 // connection closed
@@ -340,23 +298,6 @@ impl SplinterClient<V753> {
                 .await
                 .map_err(|e| anyhow!(e))
         }
-    }
-    pub async fn send_message(
-        &self,
-        msg: impl ToChat,
-        sender: &CommandSender,
-    ) -> anyhow::Result<()> {
-        self.write_packet(LazyDeserializedPacket::<V753>::from_packet(
-            Packet753::PlayServerChatMessage(PlayServerChatMessageSpec {
-                message: msg.to_chat(),
-                position: match sender {
-                    CommandSender::Player(_) => ChatPosition::ChatBox,
-                    CommandSender::Console => ChatPosition::SystemMessage,
-                },
-                sender: sender.uuid(),
-            }),
-        ))
-        .await
     }
     pub async fn send_kick(&self, reason: ClientKickReason) -> anyhow::Result<()> {
         self.write_packet(LazyDeserializedPacket::<V753>::from_packet(

@@ -92,13 +92,13 @@ pub async fn handle_client_login(
                     // debug!("got login start from client");
                     client.set_name(data.name);
                     info!("\"{}\" logging in from {}", &client.name, addr);
-                    client.active_server_id = 0u64; // todo: zoning
+                    *client.active_server_id.write().unwrap() = 0u64; // todo: zoning
                     let server = Arc::clone(
                         proxy
                             .servers
                             .read()
                             .unwrap()
-                            .get(&client.active_server_id)
+                            .get(&*client.active_server_id.read().unwrap())
                             .unwrap(),
                     );
                     let mut server_connection = match server::connect(&server).await {
@@ -120,7 +120,7 @@ pub async fn handle_client_login(
                     {
                         bail!(
                             "Failed to write handshake to server {}, {}: {}",
-                            client.active_server_id,
+                            *client.active_server_id.read().unwrap(),
                             server.address,
                             e
                         );
@@ -134,12 +134,12 @@ pub async fn handle_client_login(
                     {
                         bail!(
                             "Failed to write login start packet to server {}, {}: {}",
-                            client.active_server_id,
+                            *client.active_server_id.read().unwrap(),
                             server.address,
                             e
                         );
                     }
-                    server_id_opt = Some(client.active_server_id);
+                    server_id_opt = Some(*client.active_server_id.read().unwrap());
                     server_opt = Some(server);
                     server_conn = Some(server_connection);
                     next_sender = PacketDirection::ClientBound;
@@ -185,8 +185,10 @@ pub async fn handle_client_login(
                         client_conn_reader.set_compression_threshold(Some(threshold));
                     }
                     let mut lock = proxy.mapping.lock().await;
-                    lock.uuids
-                        .insert(client.uuid, (client.active_server_id, body.uuid));
+                    lock.uuids.insert(
+                        client.uuid,
+                        (*client.active_server_id.read().unwrap(), body.uuid),
+                    );
                     // body.uuid = lock.map_uuid_server_to_proxy(client.active_server_id, body.uuid);
                     body.uuid = client.uuid;
                     client
@@ -210,11 +212,10 @@ pub async fn handle_client_login(
                 }
                 Packet753::PlayJoinGame(mut body) => {
                     // debug!("got join game from server");
-                    body.entity_id = proxy
-                        .mapping
-                        .lock()
-                        .await
-                        .map_eid_server_to_proxy(client.active_server_id, body.entity_id);
+                    body.entity_id = proxy.mapping.lock().await.map_eid_server_to_proxy(
+                        *client.active_server_id.read().unwrap(),
+                        body.entity_id,
+                    );
                     client
                         .writer
                         .lock()
@@ -262,7 +263,7 @@ pub async fn handle_client_login(
                             anyhow!(
                                 "Failed to relay client settings from {} to server {}: {}",
                                 &client.name,
-                                client.active_server_id,
+                                *client.active_server_id.read().unwrap(),
                                 e
                             )
                         })?;
@@ -343,11 +344,10 @@ pub async fn handle_client_login(
         server: server_opt.unwrap(),
         alive: true,
     }));
-    client
-        .servers
-        .lock()
-        .await
-        .insert(client.active_server_id, Arc::clone(&server_conn_arc));
+    client.servers.lock().await.insert(
+        *client.active_server_id.read().unwrap(),
+        Arc::clone(&server_conn_arc),
+    );
     let client_arc = Arc::new(client);
     proxy.players.write().unwrap().insert(
         client_arc.name.clone(),

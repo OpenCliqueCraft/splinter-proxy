@@ -35,6 +35,7 @@ use mcproto_rs::{
 use smol::Async;
 
 use crate::{
+    client::SplinterClientVersion,
     proxy::SplinterProxy,
     server::SplinterServer,
 };
@@ -169,7 +170,7 @@ pub async fn handle_handshake(
 
 pub enum PacketSender<'a> {
     Server(&'a Arc<SplinterServer>),
-    Proxy,
+    Proxy(&'a Arc<SplinterClientVersion>),
 }
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum PacketDestination {

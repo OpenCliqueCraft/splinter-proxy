@@ -299,7 +299,7 @@ pub fn map_eid(
                 map.entity_data.insert(proxy_eid, data);
             }
         }
-        PacketSender::Proxy => {
+        PacketSender::Proxy(_) => {
             let eid = match packet {
                 Packet753::PlayQueryEntityNbt(body) => &mut body.entity_id,
                 Packet753::PlayInteractEntity(body) => &mut body.entity_id,

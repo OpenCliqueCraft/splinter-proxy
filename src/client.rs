@@ -4,11 +4,15 @@ use std::{
         HashSet,
     },
     iter::FromIterator,
+    marker::PhantomData,
     net::{
         SocketAddr,
         TcpStream,
     },
-    sync::Arc,
+    sync::{
+        Arc,
+        RwLock,
+    },
 };
 
 use async_compat::CompatExt;
@@ -30,10 +34,10 @@ use smol::{
     Async,
 };
 
-use self::events::ClientEvents;
+// use self::events::ClientEvents;
 use crate::{
     chat::ToChat,
-    client::events::ProxyToServerDispatcher,
+    // client::events::ProxyToServerDispatcher,
     commands::CommandSender,
     events::LazyDeserializedPacket,
     mapping,
@@ -55,6 +59,7 @@ use crate::{
 };
 
 pub struct SplinterClient<T>
+// TODO: get rid of type?
 where
     for<'a> T: ConnectionVersion<'a>,
 {
@@ -64,9 +69,10 @@ where
     pub uuid: UUID4,
     pub settings: Mutex<ClientSettings>,
     pub servers: Mutex<HashMap<u64, Arc<Mutex<SplinterServerConnection>>>>,
-    pub active_server_id: u64,
-    pub event: Mutex<ClientEvents<T>>,
+    pub active_server_id: RwLock<u64>, // TODO: can be an ArcSwap
+    // pub event: Mutex<ClientEvents<T>>,
     pub proxy: Arc<SplinterProxy>,
+    _data: PhantomData<T>,
 }
 impl<T> SplinterClient<T>
 where
@@ -80,14 +86,15 @@ where
             uuid: mapping::uuid::uuid_from_bytes(format!("OfflinePlayer:{}", &name).as_bytes()),
             settings: Mutex::new(ClientSettings::default()),
             servers: Mutex::new(HashMap::new()),
-            active_server_id: 0,
-            event: Mutex::new(ClientEvents {
-                proxy_to_server: ProxyToServerDispatcher {
-                    listeners: vec![],
-                    action: Box::new(|proxy, event| {}), // TODO
-                },
-            }),
+            active_server_id: RwLock::new(0),
+            // event: Mutex::new(ClientEvents {
+            //     proxy_to_server: ProxyToServerDispatcher {
+            //         listeners: vec![],
+            //         action: Box::new(|proxy, event| {}), // TODO
+            //     },
+            // }),
             proxy,
+            _data: PhantomData,
         }
     }
     pub fn set_name(&mut self, name: String) {
@@ -136,72 +143,84 @@ impl SplinterClientVersion {
             SplinterClientVersion::V755(client) => todo!(),
         }
     }
-}
-
-pub mod events {
-    use std::sync::Arc;
-
-    use mcproto_rs::protocol::{
-        HasPacketKind,
-        RawPacket,
-    };
-
-    use super::SplinterClient;
-    use crate::{
-        events::{
-            LazyDeserializedPacket,
-            SplinterEventFn,
-        },
-        protocol::ConnectionVersion,
-        proxy::SplinterProxy,
-    };
-
-    pub struct ClientEvents<T>
-    where
-        for<'a> T: ConnectionVersion<'a>,
-    {
-        pub proxy_to_server: ProxyToServerDispatcher<T>,
-        // pub server_to_proxy: SplinterEventDispatcher<ClientEventServerToProxy>,
-    }
-    pub struct ProxyToServerDispatcher<T>
-    where
-        for<'a> T: ConnectionVersion<'a>,
-    {
-        pub listeners:
-            Vec<Box<dyn Send + Sync + for<'b> FnMut(&SplinterProxy, &mut ProxyToServer<'b, T>)>>,
-        pub action: Box<dyn Send + Sync + for<'b> FnMut(&SplinterProxy, &mut ProxyToServer<'b, T>)>,
-    }
-    //
-    pub struct ProxyToServer<'b, T>
-    where
-        for<'a> T: ConnectionVersion<'a>,
-    {
-        pub cancelled: bool,
-        pub target_server_id: u64,
-        pub client: &'b SplinterClient<T>,
-        pub packet: &'b mut LazyDeserializedPacket<'b, T>,
-    }
-    impl<'b, T> ProxyToServer<'b, T>
-    where
-        for<'a> T: ConnectionVersion<'a>,
-    {
-        fn is_cancelled(&self) -> bool {
-            self.cancelled
-        }
-        fn set_cancelled(&mut self, cancelled: bool) {
-            self.cancelled = cancelled;
+    pub async fn relay_message(&self, msg: &str, server_id: u64) -> anyhow::Result<()> {
+        match self {
+            SplinterClientVersion::V753(client) => client.relay_message(msg, server_id).await,
+            SplinterClientVersion::V755(client) => todo!(),
         }
     }
-    pub struct ServerToProxy<'b, T>
-    where
-        for<'a> T: ConnectionVersion<'a>,
-        for<'a> <<T as ConnectionVersion<'a>>::Protocol as RawPacket<'a>>::Packet: HasPacketKind,
-    {
-        pub cancelled: bool,
-        pub client: &'b SplinterClient<T>,
-        pub packet: &'b mut LazyDeserializedPacket<'b, T>,
+    pub fn active_server_id(&self) -> u64 {
+        match self {
+            SplinterClientVersion::V753(client) => *client.active_server_id.read().unwrap(),
+            SplinterClientVersion::V755(client) => todo!(),
+        }
     }
 }
+
+// pub mod events {
+//     use std::sync::Arc;
+
+//     use mcproto_rs::protocol::{
+//         HasPacketKind,
+//         RawPacket,
+//     };
+
+//     use super::SplinterClient;
+//     use crate::{
+//         events::{
+//             LazyDeserializedPacket,
+//             SplinterEventFn,
+//         },
+//         protocol::ConnectionVersion,
+//         proxy::SplinterProxy,
+//     };
+
+//     pub struct ClientEvents<T>
+//     where
+//         for<'a> T: ConnectionVersion<'a>,
+//     {
+//         pub proxy_to_server: ProxyToServerDispatcher<T>,
+//         // pub server_to_proxy: SplinterEventDispatcher<ClientEventServerToProxy>,
+//     }
+//     pub struct ProxyToServerDispatcher<T>
+//     where
+//         for<'a> T: ConnectionVersion<'a>,
+//     {
+//         pub listeners:
+//             Vec<Box<dyn Send + Sync + for<'b> FnMut(&SplinterProxy, &mut ProxyToServer<'b, T>)>>,
+//         pub action: Box<dyn Send + Sync + for<'b> FnMut(&SplinterProxy, &mut ProxyToServer<'b, T>)>,
+//     }
+//     //
+//     pub struct ProxyToServer<'b, T>
+//     where
+//         for<'a> T: ConnectionVersion<'a>,
+//     {
+//         pub cancelled: bool,
+//         pub target_server_id: u64,
+//         pub client: &'b SplinterClient<T>,
+//         pub packet: &'b mut LazyDeserializedPacket<'b, T>,
+//     }
+//     impl<'b, T> ProxyToServer<'b, T>
+//     where
+//         for<'a> T: ConnectionVersion<'a>,
+//     {
+//         fn is_cancelled(&self) -> bool {
+//             self.cancelled
+//         }
+//         fn set_cancelled(&mut self, cancelled: bool) {
+//             self.cancelled = cancelled;
+//         }
+//     }
+//     pub struct ServerToProxy<'b, T>
+//     where
+//         for<'a> T: ConnectionVersion<'a>,
+//         for<'a> <<T as ConnectionVersion<'a>>::Protocol as RawPacket<'a>>::Packet: HasPacketKind,
+//     {
+//         pub cancelled: bool,
+//         pub client: &'b SplinterClient<T>,
+//         pub packet: &'b mut LazyDeserializedPacket<'b, T>,
+//     }
+// }
 
 #[derive(Copy, Clone, PartialEq, Eq, Debug, Hash)]
 pub enum ChatMode {

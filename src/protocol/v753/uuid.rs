@@ -142,7 +142,7 @@ pub fn map_uuid(
                 *uuid = map.map_uuid_server_to_proxy(server.id, *uuid);
             }
         }
-        PacketSender::Proxy => {
+        PacketSender::Proxy(_) => {
             if let Packet753::PlaySpectate(body) = packet {
                 if let Ok((server_id, server_uuid)) = map.map_uuid_proxy_to_server(body.target) {
                     body.target = server_uuid;
