@@ -4,6 +4,7 @@ use std::{
     sync::Arc,
 };
 
+use blocking::unblock;
 use craftio_rs::{
     CraftAsyncReader,
     CraftAsyncWriter,
@@ -42,6 +43,7 @@ use crate::{
         MainHand,
         SkinPart,
         SplinterClient,
+        SplinterClientVersion,
     },
     protocol::{
         version,
@@ -347,6 +349,10 @@ pub async fn handle_client_login(
         .await
         .insert(client.active_server_id, Arc::clone(&server_conn_arc));
     let client_arc = Arc::new(client);
+    proxy.players.write().unwrap().insert(
+        client_arc.name.clone(),
+        Arc::new(SplinterClientVersion::V753(Arc::clone(&client_arc))),
+    );
 
     // move on to relay loop
     let (res_a, res_b) = future::zip(

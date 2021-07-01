@@ -47,7 +47,10 @@ use crate::{
         ConnectionVersion,
         ProtocolVersion,
     },
-    proxy::SplinterProxy,
+    proxy::{
+        ClientKickReason,
+        SplinterProxy,
+    },
     server::SplinterServerConnection,
 };
 
@@ -95,8 +98,8 @@ where
 }
 
 pub enum SplinterClientVersion {
-    V753(SplinterClient<V753>),
-    V755(SplinterClient<V755>),
+    V753(Arc<SplinterClient<V753>>),
+    V755(Arc<SplinterClient<V755>>),
 }
 impl SplinterClientVersion {
     pub fn name<'a>(&'a self) -> &'a str {
@@ -119,6 +122,18 @@ impl SplinterClientVersion {
         match self {
             SplinterClientVersion::V753(client) => client.send_message(chat, sender).await,
             SplinterClientVersion::V755(client) => todo!(), // client.send_message(chat).await,
+        }
+    }
+    pub async fn send_kick(&self, reason: ClientKickReason) -> anyhow::Result<()> {
+        match self {
+            SplinterClientVersion::V753(client) => client.send_kick(reason).await,
+            SplinterClientVersion::V755(client) => todo!(),
+        }
+    }
+    pub async fn set_alive(&self, value: bool) {
+        match self {
+            SplinterClientVersion::V753(client) => *client.alive.lock().await = value,
+            SplinterClientVersion::V755(client) => todo!(),
         }
     }
 }

@@ -76,7 +76,52 @@ impl SplinterProxy {
     pub fn is_alive(&self) -> bool {
         *self.alive.read().unwrap()
     }
+    pub async fn kick_client(
+        &self,
+        client_name: impl AsRef<str>,
+        reason: ClientKickReason,
+    ) -> anyhow::Result<()> {
+        let mut players = self.players.write().unwrap();
+        let name_string = client_name.as_ref().to_owned();
+        if let Some(client) = players.get(&name_string) {
+            client.send_kick(reason).await?;
+            client.set_alive(false).await;
+            players.remove(&name_string);
+        } else {
+            bail!("Failed to find client by the name \"{}\"", name_string);
+        }
+        Ok(())
+    }
 }
+
+/// A reason for a client to get kicked
+pub enum ClientKickReason {
+    /// Client failed to send a keep alive packet back in time
+    TimedOut,
+    /// Client was directly kicked
+    Kicked(String, Option<String>),
+    /// Server shut down
+    Shutdown,
+}
+
+impl ClientKickReason {
+    pub fn text(&self) -> String {
+        match self {
+            ClientKickReason::TimedOut => "Timed out".into(),
+            ClientKickReason::Kicked(by, reason) => format!(
+                "Kicked by {}{}",
+                by,
+                if let Some(reason) = reason {
+                    format!(" because \"{}\"", reason)
+                } else {
+                    "".into()
+                }
+            ),
+            ClientKickReason::Shutdown => "Server shut down".into(),
+        }
+    }
+}
+
 pub async fn run(proxy: Arc<SplinterProxy>) -> anyhow::Result<()> {
     let address = SocketAddr::from_str(proxy.config.proxy_address.as_str())?;
     let listener = Async::<TcpListener>::bind(address)?;

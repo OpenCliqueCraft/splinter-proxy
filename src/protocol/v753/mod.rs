@@ -13,10 +13,12 @@ use mcproto_rs::{
         HasPacketKind,
         State,
     },
+    types::Chat,
     v1_16_3::{
         ChatPosition,
         HandshakeNextState,
         Packet753,
+        PlayDisconnectSpec,
         PlayServerChatMessageSpec,
         RawPacket753,
         StatusPongSpec,
@@ -42,7 +44,10 @@ use crate::{
         version,
         ProtocolVersion,
     },
-    proxy::SplinterProxy,
+    proxy::{
+        ClientKickReason,
+        SplinterProxy,
+    },
     server::SplinterServerConnection,
 };
 
@@ -311,6 +316,14 @@ impl SplinterClient<V753> {
                     CommandSender::Console => ChatPosition::SystemMessage,
                 },
                 sender: sender.uuid(),
+            }),
+        ))
+        .await
+    }
+    pub async fn send_kick(&self, reason: ClientKickReason) -> anyhow::Result<()> {
+        self.write_packet(LazyDeserializedPacket::<V753>::from_packet(
+            Packet753::PlayDisconnect(PlayDisconnectSpec {
+                reason: Chat::from_text(&reason.text()),
             }),
         ))
         .await

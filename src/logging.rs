@@ -4,6 +4,7 @@ use simplelog::{
     ColorChoice,
     CombinedLogger,
     Config,
+    ConfigBuilder,
     LevelFilter,
     TermLogger,
     TerminalMode,
@@ -13,16 +14,17 @@ use simplelog::{
 pub const LATEST_LOG_FILENAME: &'static str = "./latest.log";
 
 pub fn init() -> anyhow::Result<()> {
+    let config = ConfigBuilder::default().set_time_to_local(true).build();
     CombinedLogger::init(vec![
         TermLogger::new(
             LevelFilter::Debug,
-            Config::default(),
+            config.clone(),
             TerminalMode::Mixed,
             ColorChoice::Auto,
         ),
         WriteLogger::new(
             LevelFilter::Debug, // setting to trace will result in a lot from the async stuff
-            Config::default(),
+            config,
             File::create(LATEST_LOG_FILENAME).unwrap(),
         ),
     ])?;

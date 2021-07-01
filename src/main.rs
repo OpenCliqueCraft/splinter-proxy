@@ -14,6 +14,7 @@ mod client;
 mod commands;
 mod config;
 mod events;
+mod init;
 mod logging;
 mod mapping;
 mod protocol;
@@ -44,5 +45,10 @@ fn main() -> anyhow::Result<()> {
     let proxy = SplinterProxy::new(config)?;
     let proxy_arc = Arc::new(proxy);
     info!("Starting Splinter Proxy");
-    smol::block_on(proxy::run(proxy_arc))
+    smol::block_on(async {
+        if let Err(e) = init::init(&proxy_arc).await {
+            bail!("Failed to start proxy: {}", e);
+        }
+        proxy::run(proxy_arc).await
+    })
 }
