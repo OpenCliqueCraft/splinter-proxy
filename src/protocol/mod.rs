@@ -171,6 +171,12 @@ pub enum PacketSender<'a> {
     Server(&'a Arc<SplinterServer>),
     Proxy,
 }
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum PacketDestination {
+    Server(u64),
+    Client, // afaik no need to specify which at the moment
+    None,
+}
 
 pub trait ConnectionVersion<'a> {
     type Protocol: RawPacket<'a> + HasPacketKind + Send + Sync;

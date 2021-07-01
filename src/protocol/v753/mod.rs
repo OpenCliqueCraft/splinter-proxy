@@ -32,6 +32,8 @@ use super::{
     version::V753,
     AsyncCraftConnection,
     AsyncCraftReader,
+    AsyncCraftWriter,
+    PacketDestination,
     PacketSender,
 };
 use crate::{
@@ -97,10 +99,11 @@ pub struct RelayPassFn(
             + Sync
             + Fn(
                 &Arc<SplinterProxy>,
-                PacketSender,
+                &PacketSender,
                 &mut LazyDeserializedPacket<V753>,
                 &mut SplinterMapping,
-            ) -> Option<u64>,
+                &mut PacketDestination,
+            ),
     >,
 );
 
@@ -113,6 +116,7 @@ pub async fn handle_server_relay(
     mut server_reader: AsyncCraftReader,
 ) -> anyhow::Result<()> {
     let server = Arc::clone(&server_conn.lock().await.server);
+    let sender = PacketSender::Server(&server);
     loop {
         // server->proxy->client
         if !*client.alive.lock().await || !server_conn.lock().await.alive {
@@ -130,44 +134,13 @@ pub async fn handle_server_relay(
                 let mut lazy_packet =
                     LazyDeserializedPacket::<version::V753>::from_raw_packet(raw_packet);
                 let map = &mut *proxy.mapping.lock().await;
+                let mut destination = PacketDestination::Client;
                 for pass in inventory::iter::<RelayPassFn> {
-                    (pass.0)(&proxy, PacketSender::Server(&server), &mut lazy_packet, map);
+                    (pass.0)(&proxy, &sender, &mut lazy_packet, map, &mut destination);
                 }
-                let writer = &mut *client.writer.lock().await;
-                if lazy_packet.is_deserialized() {
-                    if let Err(e) = writer
-                        .write_packet_async(match lazy_packet.into_packet() {
-                            Ok(packet) => packet,
-                            Err(e) => {
-                                error!("Failed to parse packet from server {}: {}", server.id, e);
-                                continue;
-                            }
-                        })
-                        .await
-                    {
-                        error!(
-                            "Failed to relay modified packet from server {} to client {}: {}",
-                            server.id, &client.name, e
-                        );
-                        continue;
-                    }
-                } else {
-                    if let Err(e) = writer
-                        .write_raw_packet_async(match lazy_packet.into_raw_packet() {
-                            Some(packet) => packet,
-                            None => {
-                                error!("Failed to get raw packet when there is none {}", server.id);
-                                continue;
-                            }
-                        })
-                        .await
-                    {
-                        error!(
-                            "Failed to relay raw packet from server {} to client {}: {}",
-                            server.id, &client.name, e
-                        );
-                        continue;
-                    }
+                // let writer = &mut *client.writer.lock().await;
+                if let Err(e) = send_packet(&client, &sender, &destination, lazy_packet).await {
+                    error!("Sending packet from server {} failure: {}", server.id, e);
                 }
             }
             None => {
@@ -184,12 +157,70 @@ pub async fn handle_server_relay(
     Ok(())
 }
 
+async fn send_packet<'a>(
+    client: &Arc<SplinterClient<V753>>,
+    sender: &PacketSender<'a>,
+    destination: &PacketDestination,
+    lazy_packet: LazyDeserializedPacket<'a, V753>,
+) -> anyhow::Result<()> {
+    match destination {
+        PacketDestination::Client => {
+            let writer = &mut *client.writer.lock().await;
+            if let Err(e) = write_packet(writer, lazy_packet).await {
+                bail!(
+                    "Failed to write packet to client \"{}\": {}",
+                    &client.name,
+                    e
+                );
+            }
+        }
+        PacketDestination::Server(server_id) => {
+            let servers = client.servers.lock().await;
+            let mut server_conn = servers
+                .get(server_id)
+                .ok_or(anyhow!(
+                    "Tried to redirect packet to unknown server id \"{}\"",
+                    server_id
+                ))?
+                .lock()
+                .await;
+            let writer = &mut server_conn.writer;
+            if let Err(e) = write_packet(writer, lazy_packet).await {
+                bail!(
+                    "Failed to write packet to server \"{}\": {}",
+                    server_conn.server.id,
+                    e
+                );
+            }
+        }
+        PacketDestination::None => return Ok(()),
+    };
+    Ok(())
+}
+
+async fn write_packet<'a>(
+    writer: &mut AsyncCraftWriter,
+    lazy_packet: LazyDeserializedPacket<'a, V753>,
+) -> anyhow::Result<()> {
+    if lazy_packet.is_deserialized() {
+        writer
+            .write_packet_async(lazy_packet.into_packet()?)
+            .await?;
+    } else {
+        writer
+            .write_raw_packet_async(lazy_packet.into_raw_packet().unwrap())
+            .await?;
+    }
+    Ok(())
+}
+
 pub async fn handle_client_relay(
     proxy: Arc<SplinterProxy>,
     client: Arc<SplinterClient<V753>>,
     mut client_reader: AsyncCraftReader,
     client_addr: SocketAddr,
 ) -> anyhow::Result<()> {
+    let sender = PacketSender::Proxy;
     loop {
         // client->proxy->server
         if !*client.alive.lock().await {
@@ -210,58 +241,65 @@ pub async fn handle_client_relay(
                 let mut lazy_packet =
                     LazyDeserializedPacket::<version::V753>::from_raw_packet(raw_packet);
                 let map = &mut *proxy.mapping.lock().await;
+                let mut destination = PacketDestination::Server(client.active_server_id);
                 for pass in inventory::iter::<RelayPassFn> {
-                    (pass.0)(&proxy, PacketSender::Proxy, &mut lazy_packet, map);
+                    (pass.0)(&proxy, &sender, &mut lazy_packet, map, &mut destination);
                 }
-                let mut server = client.servers.lock().await;
-                let writer = &mut server
-                    .get_mut(&client.active_server_id)
-                    .unwrap()
-                    .lock()
-                    .await
-                    .writer; // TODO: take a look at this double lock
-                if lazy_packet.is_deserialized() {
-                    let kind = lazy_packet.kind();
-                    if let Err(e) = writer
-                        .write_packet_async(match lazy_packet.into_packet() {
-                            Ok(packet) => packet,
-                            Err(e) => {
-                                error!(
-                                    "Failed to parse packet {:?} from {}, {}: {}",
-                                    kind, &client.name, client_addr, e
-                                );
-                                continue;
-                            }
-                        })
-                        .await
-                    {
-                        error!(
-                            "Failed to relay modified packet from {}, {} to server id {}: {}",
-                            &client.name, client_addr, client.active_server_id, e
-                        );
-                        continue;
-                    }
-                } else {
-                    if let Err(e) = writer
-                        .write_raw_packet_async(match lazy_packet.into_raw_packet() {
-                            Some(packet) => packet,
-                            None => {
-                                error!(
-                                    "Failed to get raw packet when there is none {}, {}",
-                                    &client.name, client_addr
-                                );
-                                continue;
-                            }
-                        })
-                        .await
-                    {
-                        error!(
-                            "Failed to relay raw packet from {}, {} to server id {}: {}",
-                            &client.name, client_addr, client.active_server_id, e
-                        );
-                        continue;
-                    }
+                if let Err(e) = send_packet(&client, &sender, &destination, lazy_packet).await {
+                    error!(
+                        "Sending packet from client \"{}\" failure: {}",
+                        &client.name, e
+                    );
                 }
+                // let mut server = client.servers.lock().await;
+                // let writer = &mut server
+                //     .get_mut(&client.active_server_id)
+                //     .unwrap()
+                //     .lock()
+                //     .await
+                //     .writer; // TODO: take a look at this double lock
+                // if lazy_packet.is_deserialized() {
+                //     let kind = lazy_packet.kind();
+                //     if let Err(e) = writer
+                //         .write_packet_async(match lazy_packet.into_packet() {
+                //             Ok(packet) => packet,
+                //             Err(e) => {
+                //                 error!(
+                //                     "Failed to parse packet {:?} from {}, {}: {}",
+                //                     kind, &client.name, client_addr, e
+                //                 );
+                //                 continue;
+                //             }
+                //         })
+                //         .await
+                //     {
+                //         error!(
+                //             "Failed to relay modified packet from {}, {} to server id {}: {}",
+                //             &client.name, client_addr, client.active_server_id, e
+                //         );
+                //         continue;
+                //     }
+                // } else {
+                //     if let Err(e) = writer
+                //         .write_raw_packet_async(match lazy_packet.into_raw_packet() {
+                //             Some(packet) => packet,
+                //             None => {
+                //                 error!(
+                //                     "Failed to get raw packet when there is none {}, {}",
+                //                     &client.name, client_addr
+                //                 );
+                //                 continue;
+                //             }
+                //         })
+                //         .await
+                //     {
+                //         error!(
+                //             "Failed to relay raw packet from {}, {} to server id {}: {}",
+                //             &client.name, client_addr, client.active_server_id, e
+                //         );
+                //         continue;
+                //     }
+                // }
             }
             None => {
                 // connection closed

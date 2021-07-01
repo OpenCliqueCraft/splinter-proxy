@@ -14,17 +14,21 @@ use crate::{
         EntityData,
         SplinterMapping,
     },
-    protocol::PacketSender,
+    protocol::{
+        PacketDestination,
+        PacketSender,
+    },
 };
 
 inventory::submit! {
-    RelayPassFn(Box::new(|proxy, sender, mut lazy_packet, map| {
+    RelayPassFn(Box::new(|proxy, sender, mut lazy_packet, map, destination| {
         if has_eids(lazy_packet.kind()) {
             if let Ok(ref mut packet) = lazy_packet.packet() {
-                return map_eid(map, packet, sender);
+                if let Some(server_id) = map_eid(map, packet, sender) {
+                    *destination = PacketDestination::Server(server_id);
+                }
             }
         }
-        None
     }))
 }
 
@@ -68,7 +72,7 @@ pub fn has_eids(kind: Packet753Kind) -> bool {
 pub fn map_eid(
     map: &mut SplinterMapping,
     packet: &mut Packet753,
-    sender: PacketSender,
+    sender: &PacketSender,
 ) -> Option<u64> {
     match sender {
         PacketSender::Server(server) => {

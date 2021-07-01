@@ -12,17 +12,21 @@ use mcproto_rs::{
 use super::RelayPassFn;
 use crate::{
     mapping::SplinterMapping,
-    protocol::PacketSender,
+    protocol::{
+        PacketDestination,
+        PacketSender,
+    },
 };
 
 inventory::submit! {
-    RelayPassFn(Box::new(|proxy, sender, mut lazy_packet, map| {
+    RelayPassFn(Box::new(|proxy, sender, mut lazy_packet, map, destination| {
         if has_uuids(lazy_packet.kind()) {
             if let Ok(ref mut packet) = lazy_packet.packet() {
-                return map_uuid(map, packet, sender);
+                if let Some(server_id) = map_uuid(map, packet, sender) {
+                    *destination = PacketDestination::Server(server_id);
+                }
             }
         }
-        None
     }))
 }
 
@@ -45,7 +49,7 @@ pub fn has_uuids(kind: Packet753Kind) -> bool {
 pub fn map_uuid(
     map: &mut SplinterMapping,
     packet: &mut Packet753,
-    sender: PacketSender,
+    sender: &PacketSender,
 ) -> Option<u64> {
     match sender {
         PacketSender::Server(server) => {
