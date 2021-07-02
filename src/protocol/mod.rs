@@ -38,7 +38,10 @@ use smol::{
 };
 
 use crate::{
-    client::SplinterClient,
+    client::{
+        ClientVersion,
+        SplinterClient,
+    },
     proxy::SplinterProxy,
     server::{
         SplinterServer,
@@ -183,6 +186,92 @@ pub enum PacketDestination {
     Server(u64),
     Client, // afaik no need to specify which at the moment
     None,
+}
+
+impl SplinterClient {
+    pub async fn handle_server_relay(
+        self: &Arc<Self>,
+        proxy: Arc<SplinterProxy>,
+        server_conn: Arc<Mutex<SplinterServerConnection>>,
+        mut server_reader: AsyncCraftReader,
+    ) -> anyhow::Result<()> {
+        let server = Arc::clone(&server_conn.lock().await.server);
+        let sender = PacketSender::Server(&server, self);
+        loop {
+            // server->proxy->client
+            if !**self.alive.load() || !server_conn.lock().await.alive {
+                break;
+            }
+            let destination = PacketDestination::Client;
+            match match self.version {
+                ClientVersion::V753 => {
+                    v753::handle_server_packet(
+                        &proxy,
+                        self,
+                        &mut server_reader,
+                        &server,
+                        destination,
+                        &sender,
+                    )
+                    .await
+                }
+                ClientVersion::V755 => todo!(),
+            } {
+                Ok(Some(())) => {}
+                Ok(None) => break, // connection closed
+                Err(e) => {
+                    error!("Failed to handle packet from server: {}", e);
+                }
+            }
+        }
+        server_conn.lock().await.alive = false;
+        debug!(
+            "Server connection between {} and server id {} closed",
+            self.name, server.id
+        );
+        Ok(())
+    }
+    pub async fn handle_client_relay(
+        self: &Arc<Self>,
+        proxy: Arc<SplinterProxy>,
+        mut client_reader: AsyncCraftReader,
+    ) -> anyhow::Result<()> {
+        let client_arc_clone = Arc::clone(self);
+        let sender = PacketSender::Proxy(&client_arc_clone);
+        loop {
+            // client->proxy->server
+            if !**self.alive.load() {
+                break;
+            }
+            let destination = PacketDestination::Server(**self.active_server_id.load());
+            match match self.version {
+                ClientVersion::V753 => {
+                    v753::handle_client_packet(
+                        &proxy,
+                        self,
+                        &mut client_reader,
+                        destination,
+                        &sender,
+                    )
+                    .await
+                }
+                ClientVersion::V755 => todo!(),
+            } {
+                Ok(Some(())) => {}
+                Ok(None) => break,
+                Err(e) => {
+                    error!(
+                        "Failed to handle packet from client \"{}\": {}",
+                        &self.name, e
+                    );
+                }
+            }
+        }
+        proxy.players.write().unwrap().remove(&self.name);
+        self.alive.store(Arc::new(false));
+        info!("Client \"{}\" connection closed", self.name);
+        Ok(())
+    }
 }
 
 pub trait ConnectionVersion<'a> {

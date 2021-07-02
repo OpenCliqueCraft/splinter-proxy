@@ -54,7 +54,10 @@ use crate::{
         ClientKickReason,
         SplinterProxy,
     },
-    server::SplinterServerConnection,
+    server::{
+        SplinterServer,
+        SplinterServerConnection,
+    },
 };
 
 mod chat;
@@ -114,52 +117,69 @@ pub struct RelayPass(pub RelayPassFn);
 
 inventory::collect!(RelayPass);
 
-pub async fn handle_server_relay(
-    proxy: Arc<SplinterProxy>,
-    client: Arc<SplinterClient>,
-    server_conn: Arc<Mutex<SplinterServerConnection>>,
-    mut server_reader: AsyncCraftReader,
-) -> anyhow::Result<()> {
-    let server = Arc::clone(&server_conn.lock().await.server);
-    let sender = PacketSender::Server(&server, &client);
-    loop {
-        // server->proxy->client
-        if !**client.alive.load() || !server_conn.lock().await.alive {
-            break;
+pub async fn handle_server_packet<'a>(
+    proxy: &Arc<SplinterProxy>,
+    client: &Arc<SplinterClient>,
+    reader: &mut AsyncCraftReader,
+    server: &Arc<SplinterServer>,
+    mut destination: PacketDestination,
+    sender: &PacketSender<'a>,
+) -> anyhow::Result<Option<()>> {
+    let packet_opt = match reader.read_raw_packet_async::<RawPacket753>().await {
+        Ok(packet) => packet,
+        Err(e) => {
+            bail!("Failed to read packet {}: {}", server.id, e);
         }
-        let packet_opt = match server_reader.read_raw_packet_async::<RawPacket753>().await {
-            Ok(packet) => packet,
-            Err(e) => {
-                error!("Failed to read packet from server {}: {}", server.id, e);
-                continue;
+    };
+    match packet_opt {
+        Some(raw_packet) => {
+            let mut lazy_packet =
+                LazyDeserializedPacket::<version::V753>::from_raw_packet(raw_packet);
+            let map = &mut *proxy.mapping.lock().await;
+            for pass in inventory::iter::<RelayPass> {
+                (pass.0)(&proxy, &sender, &mut lazy_packet, map, &mut destination);
             }
-        };
-        match packet_opt {
-            Some(raw_packet) => {
-                let mut lazy_packet =
-                    LazyDeserializedPacket::<version::V753>::from_raw_packet(raw_packet);
-                let map = &mut *proxy.mapping.lock().await;
-                let mut destination = PacketDestination::Client;
-                for pass in inventory::iter::<RelayPass> {
-                    (pass.0)(&proxy, &sender, &mut lazy_packet, map, &mut destination);
-                }
-                // let writer = &mut *client.writer.lock().await;
-                if let Err(e) = send_packet(&client, &destination, lazy_packet).await {
-                    error!("Sending packet from server {} failure: {}", server.id, e);
-                }
+            if let Err(e) = send_packet(&client, &destination, lazy_packet).await {
+                bail!("Sending packet {} failure: {}", server.id, e);
             }
-            None => {
-                // connection closed
-                break;
-            }
+            Ok(Some(()))
         }
+        None => Ok(None),
     }
-    server_conn.lock().await.alive = false;
-    info!(
-        "Server connection between {} and server id {} closed",
-        client.name, server.id
-    );
-    Ok(())
+}
+
+pub async fn handle_client_packet<'a>(
+    proxy: &Arc<SplinterProxy>,
+    client: &Arc<SplinterClient>,
+    reader: &mut AsyncCraftReader,
+    mut destination: PacketDestination,
+    sender: &PacketSender<'a>,
+) -> anyhow::Result<Option<()>> {
+    let packet_opt = match reader.read_raw_packet_async::<RawPacket753>().await {
+        Ok(packet) => packet,
+        Err(e) => {
+            bail!("Failed to read packet from {}: {}", client.name, e);
+        }
+    };
+    match packet_opt {
+        Some(raw_packet) => {
+            let mut lazy_packet =
+                LazyDeserializedPacket::<version::V753>::from_raw_packet(raw_packet);
+            let map = &mut *proxy.mapping.lock().await;
+            for pass in inventory::iter::<RelayPass> {
+                (pass.0)(&proxy, &sender, &mut lazy_packet, map, &mut destination);
+            }
+            if let Err(e) = send_packet(&client, &destination, lazy_packet).await {
+                bail!(
+                    "Sending packet from client \"{}\" failure: {}",
+                    &client.name,
+                    e
+                );
+            }
+            Ok(Some(()))
+        }
+        None => Ok(None),
+    }
 }
 
 async fn send_packet(
@@ -217,60 +237,6 @@ async fn write_packet(
             .write_raw_packet_async(lazy_packet.into_raw_packet().unwrap())
             .await?;
     }
-    Ok(())
-}
-
-pub async fn handle_client_relay(
-    proxy: Arc<SplinterProxy>,
-    client: Arc<SplinterClient>,
-    mut client_reader: AsyncCraftReader,
-    client_addr: SocketAddr,
-) -> anyhow::Result<()> {
-    let client_arc_clone = Arc::clone(&client);
-    let sender = PacketSender::Proxy(&client_arc_clone);
-    loop {
-        // client->proxy->server
-        if !**client.alive.load() {
-            break;
-        }
-        let packet_opt = match client_reader.read_raw_packet_async::<RawPacket753>().await {
-            Ok(packet) => packet,
-            Err(e) => {
-                error!(
-                    "Failed to read packet from {}, {}: {}",
-                    client.name, client_addr, e
-                );
-                continue;
-            }
-        };
-        match packet_opt {
-            Some(raw_packet) => {
-                let mut lazy_packet =
-                    LazyDeserializedPacket::<version::V753>::from_raw_packet(raw_packet);
-                let map = &mut *proxy.mapping.lock().await;
-                let mut destination = PacketDestination::Server(**client.active_server_id.load());
-                for pass in inventory::iter::<RelayPass> {
-                    (pass.0)(&proxy, &sender, &mut lazy_packet, map, &mut destination);
-                }
-                if let Err(e) = send_packet(&client, &destination, lazy_packet).await {
-                    error!(
-                        "Sending packet from client \"{}\" failure: {}",
-                        &client.name, e
-                    );
-                }
-            }
-            None => {
-                // connection closed
-                break;
-            }
-        }
-    }
-    proxy.players.write().unwrap().remove(&client.name);
-    client.alive.store(Arc::new(false));
-    info!(
-        "Client \"{}\", {} connection closed",
-        client.name, client_addr
-    );
     Ok(())
 }
 

@@ -358,18 +358,8 @@ pub async fn handle_client_login(
 
     // move on to relay loop
     let (res_a, res_b) = future::zip(
-        super::handle_client_relay(
-            Arc::clone(&proxy),
-            Arc::clone(&client_arc),
-            client_conn_reader,
-            addr,
-        ),
-        super::handle_server_relay(
-            proxy,
-            Arc::clone(&client_arc),
-            server_conn_arc,
-            server_conn_reader,
-        ),
+        client_arc.handle_client_relay(Arc::clone(&proxy), client_conn_reader),
+        client_arc.handle_server_relay(proxy, server_conn_arc, server_conn_reader),
     )
     .await;
     res_a?;
