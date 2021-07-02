@@ -22,15 +22,16 @@ pub struct SplinterServer {
     pub id: u64,
     pub address: SocketAddr,
 }
-
-pub async fn connect(server: &Arc<SplinterServer>) -> anyhow::Result<AsyncCraftConnection> {
-    let arc_stream = AsyncArc::new(Async::<TcpStream>::connect(server.address).await?);
-    let (reader, writer) = (
-        AsyncArc::clone(&arc_stream).compat(),
-        AsyncArc::clone(&arc_stream).compat(),
-    );
-    let conn = CraftConnection::from_async((reader, writer), PacketDirection::ClientBound);
-    Ok(conn)
+impl SplinterServer {
+    pub async fn connect(&self) -> anyhow::Result<AsyncCraftConnection> {
+        let arc_stream = AsyncArc::new(Async::<TcpStream>::connect(self.address).await?);
+        let (reader, writer) = (
+            AsyncArc::clone(&arc_stream).compat(),
+            AsyncArc::clone(&arc_stream).compat(),
+        );
+        let conn = CraftConnection::from_async((reader, writer), PacketDirection::ClientBound);
+        Ok(conn)
+    }
 }
 
 pub struct SplinterServerConnection {

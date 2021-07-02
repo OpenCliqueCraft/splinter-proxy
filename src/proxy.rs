@@ -25,8 +25,8 @@ use smol::{
 use crate::{
     client::{
         self,
+        ClientVersion,
         SplinterClient,
-        SplinterClientVersion,
     },
     config::SplinterConfig,
     mapping::SplinterMapping,
@@ -42,7 +42,7 @@ pub struct SplinterProxy {
     pub protocol: ProtocolVersion,
     pub alive: RwLock<bool>,
     pub config: SplinterConfig,
-    pub players: RwLock<HashMap<String, Arc<SplinterClientVersion>>>,
+    pub players: RwLock<HashMap<String, Arc<SplinterClient>>>,
     pub servers: RwLock<HashMap<u64, Arc<SplinterServer>>>,
     pub mapping: Mutex<SplinterMapping>,
     pub tags: Mutex<Option<Tags>>,

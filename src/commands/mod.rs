@@ -21,8 +21,8 @@ use smol::{
 use crate::{
     chat::ToChat,
     client::{
+        ClientVersion,
         SplinterClient,
-        SplinterClientVersion,
     },
     events::LazyDeserializedPacket,
     init::SplinterSystem,
@@ -38,7 +38,7 @@ mod list;
 mod stop;
 
 pub enum CommandSender {
-    Player(Arc<SplinterClientVersion>),
+    Player(Arc<SplinterClient>),
     Console,
 }
 
@@ -54,13 +54,13 @@ impl CommandSender {
     }
     pub fn name(&self) -> String {
         match self {
-            CommandSender::Player(client) => client.name().to_owned(),
+            CommandSender::Player(client) => client.name.to_owned(),
             CommandSender::Console => "console".into(),
         }
     }
     pub fn uuid(&self) -> UUID4 {
         match self {
-            CommandSender::Player(client) => client.uuid(),
+            CommandSender::Player(client) => client.uuid,
             CommandSender::Console => UUID4::from(0u128),
         }
     }

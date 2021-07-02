@@ -85,13 +85,11 @@ pub async fn receive_chat_message<'a>(
     let msg_string = format_chat_message_string(&cmd_sender, msg);
     info!("{}", msg_string);
     if let Some('/') = msg.chars().nth(0) {
-        let server_id = client.active_server_id();
+        let server_id = client.server_id();
         if let Err(e) = client.relay_message(msg, server_id).await {
             error!(
                 "Failed to relay chat message from \"{}\" to server \"{}\": {}",
-                client.name(),
-                server_id,
-                e
+                &client.name, server_id, e
             );
         }
     } else {
@@ -109,8 +107,7 @@ pub async fn broadcast_message(
         if let Err(e) = target.send_message(msg.clone(), sender).await {
             error!(
                 "Failed to send broadcast message to {}: {}",
-                &target.name(),
-                e
+                &target.name, e
             );
         }
     }

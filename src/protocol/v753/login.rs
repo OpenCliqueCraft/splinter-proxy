@@ -40,10 +40,10 @@ use crate::{
     client::{
         ChatMode,
         ClientSettings,
+        ClientVersion,
         MainHand,
         SkinPart,
         SplinterClient,
-        SplinterClientVersion,
     },
     protocol::{
         version,
@@ -53,7 +53,7 @@ use crate::{
     },
     proxy::SplinterProxy,
     server::{
-        self,
+        SplinterServer,
         SplinterServerConnection,
     },
 };
@@ -65,8 +65,12 @@ pub async fn handle_client_login(
 ) -> anyhow::Result<()> {
     conn.set_state(State::Login);
     let (mut client_conn_reader, client_conn_writer) = conn.into_split();
-    let mut client =
-        SplinterClient::<version::V753>::new(Arc::clone(&proxy), String::new(), client_conn_writer);
+    let mut client = SplinterClient::new(
+        Arc::clone(&proxy),
+        String::new(),
+        client_conn_writer,
+        ClientVersion::V753,
+    );
     let mut server_conn: Option<AsyncCraftConnection> = None;
     let mut server_id_opt: Option<u64> = None;
     let mut server_opt = None;
@@ -92,16 +96,16 @@ pub async fn handle_client_login(
                     // debug!("got login start from client");
                     client.set_name(data.name);
                     info!("\"{}\" logging in from {}", &client.name, addr);
-                    *client.active_server_id.write().unwrap() = 0u64; // todo: zoning
+                    client.active_server_id.store(Arc::new(0u64)); // todo: zoning
                     let server = Arc::clone(
                         proxy
                             .servers
                             .read()
                             .unwrap()
-                            .get(&*client.active_server_id.read().unwrap())
+                            .get(&*client.active_server_id.load())
                             .unwrap(),
                     );
-                    let mut server_connection = match server::connect(&server).await {
+                    let mut server_connection = match server.connect().await {
                         Ok(conn) => conn,
                         Err(e) => bail!("Failed to connect client to server: {}", e),
                     };
@@ -120,7 +124,7 @@ pub async fn handle_client_login(
                     {
                         bail!(
                             "Failed to write handshake to server {}, {}: {}",
-                            *client.active_server_id.read().unwrap(),
+                            *client.active_server_id.load(),
                             server.address,
                             e
                         );
@@ -134,12 +138,12 @@ pub async fn handle_client_login(
                     {
                         bail!(
                             "Failed to write login start packet to server {}, {}: {}",
-                            *client.active_server_id.read().unwrap(),
+                            *client.active_server_id.load(),
                             server.address,
                             e
                         );
                     }
-                    server_id_opt = Some(*client.active_server_id.read().unwrap());
+                    server_id_opt = Some(**client.active_server_id.load());
                     server_opt = Some(server);
                     server_conn = Some(server_connection);
                     next_sender = PacketDirection::ClientBound;
@@ -185,10 +189,8 @@ pub async fn handle_client_login(
                         client_conn_reader.set_compression_threshold(Some(threshold));
                     }
                     let mut lock = proxy.mapping.lock().await;
-                    lock.uuids.insert(
-                        client.uuid,
-                        (*client.active_server_id.read().unwrap(), body.uuid),
-                    );
+                    lock.uuids
+                        .insert(client.uuid, (**client.active_server_id.load(), body.uuid));
                     // body.uuid = lock.map_uuid_server_to_proxy(client.active_server_id, body.uuid);
                     body.uuid = client.uuid;
                     client
@@ -212,10 +214,11 @@ pub async fn handle_client_login(
                 }
                 Packet753::PlayJoinGame(mut body) => {
                     // debug!("got join game from server");
-                    body.entity_id = proxy.mapping.lock().await.map_eid_server_to_proxy(
-                        *client.active_server_id.read().unwrap(),
-                        body.entity_id,
-                    );
+                    body.entity_id = proxy
+                        .mapping
+                        .lock()
+                        .await
+                        .map_eid_server_to_proxy(**client.active_server_id.load(), body.entity_id);
                     client
                         .writer
                         .lock()
@@ -253,7 +256,7 @@ pub async fn handle_client_login(
                 }
                 Packet753::PlayClientSettings(body) => {
                     // debug!("got client settings from client");
-                    *client.settings.lock().await = body.clone().into();
+                    client.settings.store(Arc::new(body.clone().into()));
                     server_conn
                         .as_mut()
                         .unwrap()
@@ -263,7 +266,7 @@ pub async fn handle_client_login(
                             anyhow!(
                                 "Failed to relay client settings from {} to server {}: {}",
                                 &client.name,
-                                *client.active_server_id.read().unwrap(),
+                                **client.active_server_id.load(),
                                 e
                             )
                         })?;
@@ -345,14 +348,15 @@ pub async fn handle_client_login(
         alive: true,
     }));
     client.servers.lock().await.insert(
-        *client.active_server_id.read().unwrap(),
+        **client.active_server_id.load(),
         Arc::clone(&server_conn_arc),
     );
     let client_arc = Arc::new(client);
-    proxy.players.write().unwrap().insert(
-        client_arc.name.clone(),
-        Arc::new(SplinterClientVersion::V753(Arc::clone(&client_arc))),
-    );
+    proxy
+        .players
+        .write()
+        .unwrap()
+        .insert(client_arc.name.clone(), Arc::clone(&client_arc));
 
     // move on to relay loop
     let (res_a, res_b) = future::zip(

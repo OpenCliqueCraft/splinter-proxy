@@ -24,6 +24,7 @@ async-dup = "1.2.2"
 inventory = "0.1.10"
 blocking = "1.0.2"
 futures-lite = "1.12.0"
+arc-swap = "1.3.0"
 
 [patch.crates-io]
 mcproto-rs = { git = "https://github.com/regenerativep/mcproto-rs", rev = "e3d69dc043670dcc370e576a7eb3cb9b5a3e45fa" }

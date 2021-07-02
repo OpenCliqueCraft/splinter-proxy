@@ -39,8 +39,8 @@ use super::{
 use crate::{
     chat::ToChat,
     client::{
+        ClientVersion,
         SplinterClient,
-        SplinterClientVersion,
     },
     commands::CommandSender,
     events::LazyDeserializedPacket,
@@ -116,7 +116,7 @@ inventory::collect!(RelayPassFn);
 
 pub async fn handle_server_relay(
     proxy: Arc<SplinterProxy>,
-    client: Arc<SplinterClient<V753>>,
+    client: Arc<SplinterClient>,
     server_conn: Arc<Mutex<SplinterServerConnection>>,
     mut server_reader: AsyncCraftReader,
 ) -> anyhow::Result<()> {
@@ -124,7 +124,7 @@ pub async fn handle_server_relay(
     let sender = PacketSender::Server(&server);
     loop {
         // server->proxy->client
-        if !*client.alive.lock().await || !server_conn.lock().await.alive {
+        if !**client.alive.load() || !server_conn.lock().await.alive {
             break;
         }
         let packet_opt = match server_reader.read_raw_packet_async::<RawPacket753>().await {
@@ -163,7 +163,7 @@ pub async fn handle_server_relay(
 }
 
 async fn send_packet<'a>(
-    client: &Arc<SplinterClient<V753>>,
+    client: &Arc<SplinterClient>,
     sender: &PacketSender<'a>,
     destination: &PacketDestination,
     lazy_packet: LazyDeserializedPacket<'a, V753>,
@@ -221,15 +221,15 @@ async fn write_packet<'a>(
 
 pub async fn handle_client_relay(
     proxy: Arc<SplinterProxy>,
-    client: Arc<SplinterClient<V753>>,
+    client: Arc<SplinterClient>,
     mut client_reader: AsyncCraftReader,
     client_addr: SocketAddr,
 ) -> anyhow::Result<()> {
-    let client_v_arc = Arc::new(SplinterClientVersion::V753(Arc::clone(&client)));
-    let sender = PacketSender::Proxy(&client_v_arc);
+    let client_arc_clone = Arc::clone(&client);
+    let sender = PacketSender::Proxy(&client_arc_clone);
     loop {
         // client->proxy->server
-        if !*client.alive.lock().await {
+        if !**client.alive.load() {
             break;
         }
         let packet_opt = match client_reader.read_raw_packet_async::<RawPacket753>().await {
@@ -247,8 +247,7 @@ pub async fn handle_client_relay(
                 let mut lazy_packet =
                     LazyDeserializedPacket::<version::V753>::from_raw_packet(raw_packet);
                 let map = &mut *proxy.mapping.lock().await;
-                let mut destination =
-                    PacketDestination::Server(*client.active_server_id.read().unwrap());
+                let mut destination = PacketDestination::Server(**client.active_server_id.load());
                 for pass in inventory::iter::<RelayPassFn> {
                     (pass.0)(&proxy, &sender, &mut lazy_packet, map, &mut destination);
                 }
@@ -266,7 +265,7 @@ pub async fn handle_client_relay(
         }
     }
     proxy.players.write().unwrap().remove(&client.name);
-    *client.alive.lock().await = false;
+    client.alive.store(Arc::new(false));
     info!(
         "Client \"{}\", {} connection closed",
         client.name, client_addr
@@ -274,8 +273,8 @@ pub async fn handle_client_relay(
     Ok(())
 }
 
-impl SplinterClient<V753> {
-    pub async fn write_packet<'a>(
+impl SplinterClient {
+    pub async fn write_packet_v753<'a>(
         &self,
         packet: LazyDeserializedPacket<'a, V753>,
     ) -> anyhow::Result<()> {
@@ -299,8 +298,8 @@ impl SplinterClient<V753> {
                 .map_err(|e| anyhow!(e))
         }
     }
-    pub async fn send_kick(&self, reason: ClientKickReason) -> anyhow::Result<()> {
-        self.write_packet(LazyDeserializedPacket::<V753>::from_packet(
+    pub async fn send_kick_v753(&self, reason: ClientKickReason) -> anyhow::Result<()> {
+        self.write_packet_v753(LazyDeserializedPacket::<V753>::from_packet(
             Packet753::PlayDisconnect(PlayDisconnectSpec {
                 reason: Chat::from_text(&reason.text()),
             }),

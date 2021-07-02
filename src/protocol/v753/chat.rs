@@ -37,13 +37,13 @@ inventory::submit! {
     }))
 }
 
-impl SplinterClient<V753> {
-    pub async fn send_message(
+impl SplinterClient {
+    pub async fn send_message_v753(
         &self,
         msg: impl ToChat,
         sender: &CommandSender,
     ) -> anyhow::Result<()> {
-        self.write_packet(LazyDeserializedPacket::<V753>::from_packet(
+        self.write_packet_v753(LazyDeserializedPacket::<V753>::from_packet(
             Packet753::PlayServerChatMessage(PlayServerChatMessageSpec {
                 message: msg.to_chat(),
                 position: match sender {
@@ -55,7 +55,7 @@ impl SplinterClient<V753> {
         ))
         .await
     }
-    pub async fn relay_message(&self, msg: &str, server_id: u64) -> anyhow::Result<()> {
+    pub async fn relay_message_v753(&self, msg: &str, server_id: u64) -> anyhow::Result<()> {
         let servers = self.servers.lock().await;
         let mut server_conn = servers
             .get(&server_id)

@@ -4,7 +4,6 @@ use std::{
         HashSet,
     },
     iter::FromIterator,
-    marker::PhantomData,
     net::{
         SocketAddr,
         TcpStream,
@@ -15,6 +14,7 @@ use std::{
     },
 };
 
+use arc_swap::ArcSwap;
 use async_compat::CompatExt;
 use async_dup::Arc as AsyncArc;
 use craftio_rs::{
@@ -58,43 +58,40 @@ use crate::{
     server::SplinterServerConnection,
 };
 
-pub struct SplinterClient<T>
-// TODO: get rid of type?
-where
-    for<'a> T: ConnectionVersion<'a>,
-{
+#[derive(PartialEq, Eq, Clone, Copy)]
+pub enum ClientVersion {
+    V753,
+    V755,
+}
+
+pub struct SplinterClient {
     pub name: String,
     pub writer: Mutex<AsyncCraftWriter>,
-    pub alive: Mutex<bool>,
+    pub version: ClientVersion,
+    pub alive: ArcSwap<bool>,
     pub uuid: UUID4,
-    pub settings: Mutex<ClientSettings>,
+    pub settings: ArcSwap<ClientSettings>,
     pub servers: Mutex<HashMap<u64, Arc<Mutex<SplinterServerConnection>>>>,
-    pub active_server_id: RwLock<u64>, // TODO: can be an ArcSwap
-    // pub event: Mutex<ClientEvents<T>>,
+    pub active_server_id: ArcSwap<u64>,
     pub proxy: Arc<SplinterProxy>,
-    _data: PhantomData<T>,
 }
-impl<T> SplinterClient<T>
-where
-    for<'a> T: ConnectionVersion<'a>,
-{
-    pub fn new(proxy: Arc<SplinterProxy>, name: String, writer: AsyncCraftWriter) -> Self {
+impl SplinterClient {
+    pub fn new(
+        proxy: Arc<SplinterProxy>,
+        name: String,
+        writer: AsyncCraftWriter,
+        version: ClientVersion,
+    ) -> Self {
         Self {
             name: name.clone(),
+            version,
             writer: Mutex::new(writer),
-            alive: Mutex::new(true),
+            alive: ArcSwap::new(Arc::new(true)),
             uuid: mapping::uuid::uuid_from_bytes(format!("OfflinePlayer:{}", &name).as_bytes()),
-            settings: Mutex::new(ClientSettings::default()),
-            servers: Mutex::new(HashMap::new()),
-            active_server_id: RwLock::new(0),
-            // event: Mutex::new(ClientEvents {
-            //     proxy_to_server: ProxyToServerDispatcher {
-            //         listeners: vec![],
-            //         action: Box::new(|proxy, event| {}), // TODO
-            //     },
-            // }),
+            settings: ArcSwap::new(Arc::new(ClientSettings::default())),
+            servers: Mutex::new(HashMap::new()), /* TODO: put active server in its own specially accessible property */
+            active_server_id: ArcSwap::new(Arc::new(0)),
             proxy,
-            _data: PhantomData,
         }
     }
     pub fn set_name(&mut self, name: String) {
@@ -102,125 +99,35 @@ where
         self.uuid =
             mapping::uuid::uuid_from_bytes(format!("OfflinePlayer:{}", &self.name).as_bytes());
     }
-}
-
-pub enum SplinterClientVersion {
-    V753(Arc<SplinterClient<V753>>),
-    V755(Arc<SplinterClient<V755>>),
-}
-impl SplinterClientVersion {
-    pub fn name<'a>(&'a self) -> &'a str {
-        match self {
-            SplinterClientVersion::V753(client) => client.name.as_str(),
-            SplinterClientVersion::V755(client) => client.name.as_str(),
-        }
-    }
-    pub fn uuid(&self) -> UUID4 {
-        match self {
-            SplinterClientVersion::V753(client) => client.uuid,
-            SplinterClientVersion::V755(client) => client.uuid,
-        }
-    }
     pub async fn send_message(
         &self,
         chat: impl ToChat,
         sender: &CommandSender,
     ) -> anyhow::Result<()> {
-        match self {
-            SplinterClientVersion::V753(client) => client.send_message(chat, sender).await,
-            SplinterClientVersion::V755(client) => todo!(), // client.send_message(chat).await,
+        match self.version {
+            ClientVersion::V753 => self.send_message_v753(chat, sender).await,
+            ClientVersion::V755 => todo!(),
         }
     }
     pub async fn send_kick(&self, reason: ClientKickReason) -> anyhow::Result<()> {
-        match self {
-            SplinterClientVersion::V753(client) => client.send_kick(reason).await,
-            SplinterClientVersion::V755(client) => todo!(),
+        match self.version {
+            ClientVersion::V753 => self.send_kick_v753(reason).await,
+            ClientVersion::V755 => todo!(),
         }
     }
     pub async fn set_alive(&self, value: bool) {
-        match self {
-            SplinterClientVersion::V753(client) => *client.alive.lock().await = value,
-            SplinterClientVersion::V755(client) => todo!(),
-        }
+        self.alive.store(Arc::new(value));
     }
     pub async fn relay_message(&self, msg: &str, server_id: u64) -> anyhow::Result<()> {
-        match self {
-            SplinterClientVersion::V753(client) => client.relay_message(msg, server_id).await,
-            SplinterClientVersion::V755(client) => todo!(),
+        match self.version {
+            ClientVersion::V753 => self.relay_message_v753(msg, server_id).await,
+            ClientVersion::V755 => todo!(),
         }
     }
-    pub fn active_server_id(&self) -> u64 {
-        match self {
-            SplinterClientVersion::V753(client) => *client.active_server_id.read().unwrap(),
-            SplinterClientVersion::V755(client) => todo!(),
-        }
+    pub fn server_id(&self) -> u64 {
+        **self.active_server_id.load()
     }
 }
-
-// pub mod events {
-//     use std::sync::Arc;
-
-//     use mcproto_rs::protocol::{
-//         HasPacketKind,
-//         RawPacket,
-//     };
-
-//     use super::SplinterClient;
-//     use crate::{
-//         events::{
-//             LazyDeserializedPacket,
-//             SplinterEventFn,
-//         },
-//         protocol::ConnectionVersion,
-//         proxy::SplinterProxy,
-//     };
-
-//     pub struct ClientEvents<T>
-//     where
-//         for<'a> T: ConnectionVersion<'a>,
-//     {
-//         pub proxy_to_server: ProxyToServerDispatcher<T>,
-//         // pub server_to_proxy: SplinterEventDispatcher<ClientEventServerToProxy>,
-//     }
-//     pub struct ProxyToServerDispatcher<T>
-//     where
-//         for<'a> T: ConnectionVersion<'a>,
-//     {
-//         pub listeners:
-//             Vec<Box<dyn Send + Sync + for<'b> FnMut(&SplinterProxy, &mut ProxyToServer<'b, T>)>>,
-//         pub action: Box<dyn Send + Sync + for<'b> FnMut(&SplinterProxy, &mut ProxyToServer<'b, T>)>,
-//     }
-//     //
-//     pub struct ProxyToServer<'b, T>
-//     where
-//         for<'a> T: ConnectionVersion<'a>,
-//     {
-//         pub cancelled: bool,
-//         pub target_server_id: u64,
-//         pub client: &'b SplinterClient<T>,
-//         pub packet: &'b mut LazyDeserializedPacket<'b, T>,
-//     }
-//     impl<'b, T> ProxyToServer<'b, T>
-//     where
-//         for<'a> T: ConnectionVersion<'a>,
-//     {
-//         fn is_cancelled(&self) -> bool {
-//             self.cancelled
-//         }
-//         fn set_cancelled(&mut self, cancelled: bool) {
-//             self.cancelled = cancelled;
-//         }
-//     }
-//     pub struct ServerToProxy<'b, T>
-//     where
-//         for<'a> T: ConnectionVersion<'a>,
-//         for<'a> <<T as ConnectionVersion<'a>>::Protocol as RawPacket<'a>>::Packet: HasPacketKind,
-//     {
-//         pub cancelled: bool,
-//         pub client: &'b SplinterClient<T>,
-//         pub packet: &'b mut LazyDeserializedPacket<'b, T>,
-//     }
-// }
 
 #[derive(Copy, Clone, PartialEq, Eq, Debug, Hash)]
 pub enum ChatMode {
