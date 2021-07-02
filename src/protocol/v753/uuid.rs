@@ -52,7 +52,7 @@ pub fn map_uuid(
     sender: &PacketSender,
 ) -> Option<u64> {
     match sender {
-        PacketSender::Server(server) => {
+        PacketSender::Server(server, _client) => {
             let uuid: Option<&mut UUID4> = match packet {
                 Packet753::PlaySpawnEntity(body) => Some(&mut body.object_uuid),
                 Packet753::PlaySpawnLivingEntity(body) => Some(&mut body.entity_uuid),

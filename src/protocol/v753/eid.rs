@@ -75,7 +75,7 @@ pub fn map_eid(
     sender: &PacketSender,
 ) -> Option<u64> {
     match sender {
-        PacketSender::Server(server) => {
+        PacketSender::Server(server, _client) => {
             let mut entity_data: Option<EntityData> = None;
             let (nums, varnums): (Vec<&mut i32>, Vec<&mut VarInt>) = match packet {
                 // TODO: is it possible to use something less intensive than a vec here?

@@ -81,12 +81,17 @@ impl SplinterProxy {
         client_name: impl AsRef<str>,
         reason: ClientKickReason,
     ) -> anyhow::Result<()> {
-        let mut players = self.players.write().unwrap();
         let name_string = client_name.as_ref().to_owned();
-        if let Some(client) = players.get(&name_string) {
+        let cl_opt = self
+            .players
+            .read()
+            .unwrap()
+            .get(&name_string)
+            .map(Arc::clone);
+        if let Some(client) = cl_opt {
             client.send_kick(reason).await?;
             client.set_alive(false).await;
-            players.remove(&name_string);
+            self.players.write().unwrap().remove(&name_string);
         } else {
             bail!("Failed to find client by the name \"{}\"", name_string);
         }

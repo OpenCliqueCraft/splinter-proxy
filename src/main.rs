@@ -15,6 +15,7 @@ mod commands;
 mod config;
 mod events;
 mod init;
+mod keepalive;
 mod logging;
 mod mapping;
 mod protocol;

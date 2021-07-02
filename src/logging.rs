@@ -23,7 +23,7 @@ pub fn init() -> anyhow::Result<()> {
             ColorChoice::Auto,
         ),
         WriteLogger::new(
-            LevelFilter::Debug, // setting to trace will result in a lot from the async stuff
+            LevelFilter::Debug, /* setting to trace will result in a lot from the async libraries used in this project */
             config,
             File::create(LATEST_LOG_FILENAME).unwrap(),
         ),

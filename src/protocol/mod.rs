@@ -32,12 +32,18 @@ use mcproto_rs::{
         RawPacket753,
     },
 };
-use smol::Async;
+use smol::{
+    lock::Mutex,
+    Async,
+};
 
 use crate::{
     client::SplinterClient,
     proxy::SplinterProxy,
-    server::SplinterServer,
+    server::{
+        SplinterServer,
+        SplinterServerConnection,
+    },
 };
 
 // The rule here is, you should not have to import anything protocol specific
@@ -169,7 +175,7 @@ pub async fn handle_handshake(
 }
 
 pub enum PacketSender<'a> {
-    Server(&'a Arc<SplinterServer>),
+    Server(&'a Arc<SplinterServer>, &'a Arc<SplinterClient>),
     Proxy(&'a Arc<SplinterClient>),
 }
 #[derive(Clone, Copy, PartialEq, Eq)]

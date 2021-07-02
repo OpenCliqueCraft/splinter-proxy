@@ -79,7 +79,7 @@ pub async fn receive_chat_message(
     }
     let client = match sender {
         PacketSender::Proxy(client) => client,
-        PacketSender::Server(_) => return,
+        PacketSender::Server(_, _) => return,
     };
     let cmd_sender = CommandSender::Player(Arc::clone(client));
     let msg_string = format_chat_message_string(&cmd_sender, msg);

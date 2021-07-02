@@ -20,6 +20,7 @@ use mcproto_rs::{
         Packet753,
         PlayDisconnectSpec,
         PlayServerChatMessageSpec,
+        PlayServerKeepAliveSpec,
         RawPacket753,
         StatusPongSpec,
         StatusRequestSpec,
@@ -120,7 +121,7 @@ pub async fn handle_server_relay(
     mut server_reader: AsyncCraftReader,
 ) -> anyhow::Result<()> {
     let server = Arc::clone(&server_conn.lock().await.server);
-    let sender = PacketSender::Server(&server);
+    let sender = PacketSender::Server(&server, &client);
     loop {
         // server->proxy->client
         if !**client.alive.load() || !server_conn.lock().await.alive {
@@ -302,6 +303,14 @@ impl SplinterClient {
         self.write_packet_v753(LazyDeserializedPacket::<V753>::from_packet(
             Packet753::PlayDisconnect(PlayDisconnectSpec {
                 reason: Chat::from_text(&reason.text()),
+            }),
+        ))
+        .await
+    }
+    pub async fn send_keep_alive_v753(&self, time: u128) -> anyhow::Result<()> {
+        self.write_packet_v753(LazyDeserializedPacket::<V753>::from_packet(
+            Packet753::PlayServerKeepAlive(PlayServerKeepAliveSpec {
+                id: time as i64,
             }),
         ))
         .await

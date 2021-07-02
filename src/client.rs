@@ -34,12 +34,11 @@ use smol::{
     Async,
 };
 
-// use self::events::ClientEvents;
 use crate::{
     chat::ToChat,
-    // client::events::ProxyToServerDispatcher,
     commands::CommandSender,
     events::LazyDeserializedPacket,
+    keepalive,
     mapping,
     protocol::{
         self,
@@ -74,6 +73,7 @@ pub struct SplinterClient {
     pub servers: Mutex<HashMap<u64, Arc<Mutex<SplinterServerConnection>>>>,
     pub active_server_id: ArcSwap<u64>,
     pub proxy: Arc<SplinterProxy>,
+    pub last_keep_alive: Mutex<u128>,
 }
 impl SplinterClient {
     pub fn new(
@@ -92,6 +92,7 @@ impl SplinterClient {
             servers: Mutex::new(HashMap::new()), /* TODO: put active server in its own specially accessible property */
             active_server_id: ArcSwap::new(Arc::new(0)),
             proxy,
+            last_keep_alive: Mutex::new(keepalive::unix_time_millis()),
         }
     }
     pub fn set_name(&mut self, name: String) {
@@ -112,6 +113,12 @@ impl SplinterClient {
     pub async fn send_kick(&self, reason: ClientKickReason) -> anyhow::Result<()> {
         match self.version {
             ClientVersion::V753 => self.send_kick_v753(reason).await,
+            ClientVersion::V755 => todo!(),
+        }
+    }
+    pub async fn send_keep_alive(&self, time: u128) -> anyhow::Result<()> {
+        match self.version {
+            ClientVersion::V753 => self.send_keep_alive_v753(time).await,
             ClientVersion::V755 => todo!(),
         }
     }
