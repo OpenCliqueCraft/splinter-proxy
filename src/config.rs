@@ -53,7 +53,7 @@ impl Default for SplinterConfig {
 impl SplinterConfig {
     /// Attempts to read splinter config from a string
     pub fn from_str(data: impl AsRef<str>) -> anyhow::Result<SplinterConfig> {
-        ron::de::from_str(data.as_ref()).map_err(|e| anyhow::Error::new(e))
+        ron::de::from_str(data.as_ref()).map_err(anyhow::Error::new)
     }
     /// Attempts to read splinter config from a file
     pub fn from_file(filepath: impl AsRef<Path>) -> anyhow::Result<SplinterConfig> {
@@ -61,13 +61,13 @@ impl SplinterConfig {
     }
     /// Attempts to convert this splinter config to a string
     pub fn to_string(&self) -> anyhow::Result<String> {
-        ron::ser::to_string_pretty(self, PrettyConfig::default()).map_err(|e| anyhow::Error::new(e))
+        ron::ser::to_string_pretty(self, PrettyConfig::default()).map_err(anyhow::Error::new)
     }
     /// Attempts to write this splinter config to a file
     pub fn to_file(&self, filepath: impl AsRef<Path>) -> anyhow::Result<()> {
         File::create(filepath)?
             .write_all(self.to_string()?.as_bytes())
-            .map_err(|e| anyhow::Error::new(e))
+            .map_err(anyhow::Error::new)
     }
     /// Gets the server status given the config and the proxy
     pub fn server_status(&self, proxy: &SplinterProxy) -> StatusSpec {

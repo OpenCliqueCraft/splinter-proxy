@@ -8,7 +8,7 @@ use mcproto_rs::{
     },
 };
 
-use super::RelayPassFn;
+use super::RelayPass;
 use crate::{
     mapping::{
         EntityData,
@@ -21,7 +21,7 @@ use crate::{
 };
 
 inventory::submit! {
-    RelayPassFn(Box::new(|proxy, sender, mut lazy_packet, map, destination| {
+    RelayPass(Box::new(|_proxy, sender, lazy_packet, map, destination| {
         if has_eids(lazy_packet.kind()) {
             if let Ok(ref mut packet) = lazy_packet.packet() {
                 if let Some(server_id) = map_eid(map, packet, sender) {
@@ -202,66 +202,60 @@ pub fn map_eid(
                         match data.entity_type {
                             27 => {
                                 // fireworks
-                                if let Some(data) = body.metadata.get_mut(8) {
-                                    if let EntityMetadataFieldData::OptVarInt(ref mut id) = data {
-                                        let found_id: i32 = **id;
-                                        if found_id > 0 {
-                                            *id = (map
-                                                .map_eid_server_to_proxy(server.id, found_id - 1)
-                                                + 1)
-                                            .into();
-                                        }
+                                if let Some(EntityMetadataFieldData::OptVarInt(ref mut id)) =
+                                    body.metadata.get_mut(8)
+                                {
+                                    let found_id: i32 = **id;
+                                    if found_id > 0 {
+                                        *id = (map
+                                            .map_eid_server_to_proxy(server.id, found_id - 1)
+                                            + 1)
+                                        .into();
                                     }
                                 }
                             }
                             107 => {
                                 // fishing hook
-                                if let Some(data) = body.metadata.get_mut(7) {
-                                    if let EntityMetadataFieldData::VarInt(ref mut id) = data {
-                                        let found_id: i32 = **id;
-                                        if found_id > 0 {
-                                            *id = (map
-                                                .map_eid_server_to_proxy(server.id, found_id - 1)
-                                                + 1)
-                                            .into();
-                                            // debug!(
-                                            //     "mapped hook id {} to {}",
-                                            //     found_id - 1,
-                                            //     **id - 1
-                                            // );
-                                        }
+                                if let Some(EntityMetadataFieldData::VarInt(ref mut id)) =
+                                    body.metadata.get_mut(7)
+                                {
+                                    let found_id: i32 = **id;
+                                    if found_id > 0 {
+                                        *id = (map
+                                            .map_eid_server_to_proxy(server.id, found_id - 1)
+                                            + 1)
+                                        .into();
                                     }
                                 }
                             }
                             97 => {
                                 // wither
                                 for index in [15, 16, 17] {
-                                    if let Some(data) = body.metadata.get_mut(index) {
-                                        if let EntityMetadataFieldData::VarInt(ref mut id) = data {
-                                            let found_id: i32 = **id;
-                                            if found_id > 0 {
-                                                *id = (map.map_eid_server_to_proxy(
-                                                    server.id,
-                                                    found_id - 1,
-                                                ) + 1) // docs dont say + 1, but Im assuming that is the case here
-                                                    .into();
-                                            }
+                                    if let Some(EntityMetadataFieldData::VarInt(ref mut id)) =
+                                        body.metadata.get_mut(index)
+                                    {
+                                        let found_id: i32 = **id;
+                                        if found_id > 0 {
+                                            *id = (map
+                                                .map_eid_server_to_proxy(server.id, found_id - 1)
+                                                + 1) // docs dont say + 1, but Im assuming that is the case here
+                                            .into();
                                         }
                                     }
                                 }
                             }
                             31 | 17 => {
                                 // guardian or elder guardian
-                                if let Some(data) = body.metadata.get_mut(16) {
-                                    if let EntityMetadataFieldData::VarInt(ref mut id) = data {
-                                        let found_id: i32 = **id;
-                                        if found_id > 0 {
-                                            *id = (map
-                                                .map_eid_server_to_proxy(server.id, found_id - 1)
-                                                + 1)
-                                            .into();
-                                            // docs dont say +1, same as above
-                                        }
+                                if let Some(EntityMetadataFieldData::VarInt(ref mut id)) =
+                                    body.metadata.get_mut(16)
+                                {
+                                    let found_id: i32 = **id;
+                                    if found_id > 0 {
+                                        *id = (map
+                                            .map_eid_server_to_proxy(server.id, found_id - 1)
+                                            + 1)
+                                        .into();
+                                        // docs dont say +1, same as above
                                     }
                                 }
                             }

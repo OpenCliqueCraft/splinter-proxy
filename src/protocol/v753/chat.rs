@@ -7,7 +7,7 @@ use mcproto_rs::v1_16_3::{
     PlayServerChatMessageSpec,
 };
 
-use super::RelayPassFn;
+use super::RelayPass;
 use crate::{
     chat::{
         receive_chat_message,
@@ -23,7 +23,7 @@ use crate::{
 };
 
 inventory::submit! {
-    RelayPassFn(Box::new(|proxy, sender, mut lazy_packet, map, destination| {
+    RelayPass(Box::new(|proxy, sender, lazy_packet, _map, destination| {
         if lazy_packet.kind() == Packet753Kind::PlayClientChatMessage {
             match lazy_packet.packet() {
                 Ok(Packet753::PlayClientChatMessage(body)) => smol::block_on(receive_chat_message(proxy, sender, &body.message)),
@@ -59,10 +59,12 @@ impl SplinterClient {
         let servers = self.servers.lock().await;
         let mut server_conn = servers
             .get(&server_id)
-            .ok_or(anyhow!(
-                "Failed to get server connection for server id \"{}\"",
-                server_id
-            ))?
+            .ok_or_else(|| {
+                anyhow!(
+                    "Failed to get server connection for server id \"{}\"",
+                    server_id
+                )
+            })?
             .lock()
             .await;
         server_conn

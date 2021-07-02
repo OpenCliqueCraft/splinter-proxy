@@ -28,8 +28,6 @@ use crate::{
     server::SplinterServerConnection,
 };
 
-pub type SplinterEventFn<T> = Box<dyn Sync + Send + FnMut(&SplinterProxy, &mut T)>;
-
 /// A packet that is lazily deserialized when the deserialized packet is accessed
 pub struct LazyDeserializedPacket<'a, T>
 where

@@ -39,7 +39,7 @@ pub fn format_chat_message_string(
 }
 pub fn format_chat_message(sender: &CommandSender, message: impl ToChat + ToString) -> Chat {
     Chat::Text(TextComponent {
-        text: format!("{}", sender.name()),
+        text: sender.name(),
         base: BaseComponent {
             bold: false,
             italic: false,
@@ -69,9 +69,9 @@ pub fn format_chat_message(sender: &CommandSender, message: impl ToChat + ToStri
     })
 }
 
-pub async fn receive_chat_message<'a>(
+pub async fn receive_chat_message(
     proxy: &Arc<SplinterProxy>,
-    sender: &PacketSender<'a>,
+    sender: &PacketSender<'_>,
     msg: &str,
 ) {
     if msg.is_empty() {
@@ -81,10 +81,10 @@ pub async fn receive_chat_message<'a>(
         PacketSender::Proxy(client) => client,
         PacketSender::Server(_) => return,
     };
-    let cmd_sender = CommandSender::Player(Arc::clone(&client));
+    let cmd_sender = CommandSender::Player(Arc::clone(client));
     let msg_string = format_chat_message_string(&cmd_sender, msg);
     info!("{}", msg_string);
-    if let Some('/') = msg.chars().nth(0) {
+    if let Some('/') = msg.chars().next() {
         let server_id = client.server_id();
         if let Err(e) = client.relay_message(msg, server_id).await {
             error!(

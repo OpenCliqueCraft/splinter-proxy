@@ -27,7 +27,7 @@ use crate::{
     proxy::SplinterProxy,
 };
 
-const CONFIG_FILENAME: &'static str = "./config.ron";
+const CONFIG_FILENAME: &str = "./config.ron";
 
 fn main() -> anyhow::Result<()> {
     splinter_logging::init()?;

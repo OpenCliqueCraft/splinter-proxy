@@ -98,21 +98,20 @@ pub async fn handle_client_status(
     Ok(())
 }
 
-pub struct RelayPassFn(
-    pub  Box<
-        dyn Send
-            + Sync
-            + Fn(
-                &Arc<SplinterProxy>,
-                &PacketSender,
-                &mut LazyDeserializedPacket<V753>,
-                &mut SplinterMapping,
-                &mut PacketDestination,
-            ),
-    >,
-);
+type RelayPassFn = Box<
+    dyn Send
+        + Sync
+        + Fn(
+            &Arc<SplinterProxy>,
+            &PacketSender,
+            &mut LazyDeserializedPacket<V753>,
+            &mut SplinterMapping,
+            &mut PacketDestination,
+        ),
+>;
+pub struct RelayPass(pub RelayPassFn);
 
-inventory::collect!(RelayPassFn);
+inventory::collect!(RelayPass);
 
 pub async fn handle_server_relay(
     proxy: Arc<SplinterProxy>,
@@ -140,11 +139,11 @@ pub async fn handle_server_relay(
                     LazyDeserializedPacket::<version::V753>::from_raw_packet(raw_packet);
                 let map = &mut *proxy.mapping.lock().await;
                 let mut destination = PacketDestination::Client;
-                for pass in inventory::iter::<RelayPassFn> {
+                for pass in inventory::iter::<RelayPass> {
                     (pass.0)(&proxy, &sender, &mut lazy_packet, map, &mut destination);
                 }
                 // let writer = &mut *client.writer.lock().await;
-                if let Err(e) = send_packet(&client, &sender, &destination, lazy_packet).await {
+                if let Err(e) = send_packet(&client, &destination, lazy_packet).await {
                     error!("Sending packet from server {} failure: {}", server.id, e);
                 }
             }
@@ -162,11 +161,10 @@ pub async fn handle_server_relay(
     Ok(())
 }
 
-async fn send_packet<'a>(
+async fn send_packet(
     client: &Arc<SplinterClient>,
-    sender: &PacketSender<'a>,
     destination: &PacketDestination,
-    lazy_packet: LazyDeserializedPacket<'a, V753>,
+    lazy_packet: LazyDeserializedPacket<'_, V753>,
 ) -> anyhow::Result<()> {
     match destination {
         PacketDestination::Client => {
@@ -183,10 +181,12 @@ async fn send_packet<'a>(
             let servers = client.servers.lock().await;
             let mut server_conn = servers
                 .get(server_id)
-                .ok_or(anyhow!(
-                    "Tried to redirect packet to unknown server id \"{}\"",
-                    server_id
-                ))?
+                .ok_or_else(|| {
+                    anyhow!(
+                        "Tried to redirect packet to unknown server id \"{}\"",
+                        server_id
+                    )
+                })?
                 .lock()
                 .await;
             let writer = &mut server_conn.writer;
@@ -203,9 +203,9 @@ async fn send_packet<'a>(
     Ok(())
 }
 
-async fn write_packet<'a>(
+async fn write_packet(
     writer: &mut AsyncCraftWriter,
-    lazy_packet: LazyDeserializedPacket<'a, V753>,
+    lazy_packet: LazyDeserializedPacket<'_, V753>,
 ) -> anyhow::Result<()> {
     if lazy_packet.is_deserialized() {
         writer
@@ -248,10 +248,10 @@ pub async fn handle_client_relay(
                     LazyDeserializedPacket::<version::V753>::from_raw_packet(raw_packet);
                 let map = &mut *proxy.mapping.lock().await;
                 let mut destination = PacketDestination::Server(**client.active_server_id.load());
-                for pass in inventory::iter::<RelayPassFn> {
+                for pass in inventory::iter::<RelayPass> {
                     (pass.0)(&proxy, &sender, &mut lazy_packet, map, &mut destination);
                 }
-                if let Err(e) = send_packet(&client, &sender, &destination, lazy_packet).await {
+                if let Err(e) = send_packet(&client, &destination, lazy_packet).await {
                     error!(
                         "Sending packet from client \"{}\" failure: {}",
                         &client.name, e
@@ -274,9 +274,9 @@ pub async fn handle_client_relay(
 }
 
 impl SplinterClient {
-    pub async fn write_packet_v753<'a>(
+    pub async fn write_packet_v753(
         &self,
-        packet: LazyDeserializedPacket<'a, V753>,
+        packet: LazyDeserializedPacket<'_, V753>,
     ) -> anyhow::Result<()> {
         if packet.is_deserialized() {
             self.writer

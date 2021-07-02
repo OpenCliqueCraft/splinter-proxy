@@ -6,13 +6,12 @@ use std::{
 use smol::prelude::Future;
 
 use crate::proxy::SplinterProxy;
+pub type SystemInitFn = Box<
+    dyn Send + Sync + Fn(Arc<SplinterProxy>) -> Pin<Box<dyn Future<Output = anyhow::Result<()>>>>,
+>;
 pub struct SplinterSystem {
     pub name: &'static str,
-    pub init: Box<
-        dyn Send
-            + Sync
-            + Fn(Arc<SplinterProxy>) -> Pin<Box<dyn Future<Output = anyhow::Result<()>>>>,
-    >,
+    pub init: SystemInitFn,
 }
 inventory::collect!(SplinterSystem);
 

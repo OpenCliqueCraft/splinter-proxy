@@ -13,7 +13,7 @@ use crate::{
 inventory::submit! {
     SplinterCommand {
         name: "stop",
-        action: Box::new(|proxy: &Arc<SplinterProxy>, cmd: &str, args: &[&str], sender: &CommandSender| {
+        action: Box::new(|proxy: &Arc<SplinterProxy>, _cmd: &str, _args: &[&str], _sender: &CommandSender| {
             let names = proxy.players.read().unwrap().iter().map(|(name, _)| name.to_owned()).collect::<Vec<String>>();
             if !names.is_empty() {
                 info!("Disconnecting clients");

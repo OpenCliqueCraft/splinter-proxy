@@ -72,7 +72,6 @@ pub async fn handle_client_login(
         ClientVersion::V753,
     );
     let mut server_conn: Option<AsyncCraftConnection> = None;
-    let mut server_id_opt: Option<u64> = None;
     let mut server_opt = None;
     let mut next_sender = PacketDirection::ServerBound;
     loop {
@@ -143,7 +142,6 @@ pub async fn handle_client_login(
                             e
                         );
                     }
-                    server_id_opt = Some(**client.active_server_id.load());
                     server_opt = Some(server);
                     server_conn = Some(server_connection);
                     next_sender = PacketDirection::ClientBound;
@@ -249,7 +247,7 @@ pub async fn handle_client_login(
                     // debug!("wrote plugin message to client");
                     next_sender = PacketDirection::ServerBound;
                 }
-                Packet753::PlayClientPluginMessage(body) => {
+                Packet753::PlayClientPluginMessage(_body) => {
                     // debug!("got plugin message from client: {:?}", body);
                     //...
                     next_sender = PacketDirection::ServerBound;
@@ -414,7 +412,7 @@ pub fn client_displayed_skin_parts_into_set(parts: ClientDisplayedSkinParts) -> 
     }
     set
 }
-pub fn set_into_client_displayed_skin_parts(set: HashSet<SkinPart>) -> ClientDisplayedSkinParts {
+pub fn _set_into_client_displayed_skin_parts(set: HashSet<SkinPart>) -> ClientDisplayedSkinParts {
     let mut parts = ClientDisplayedSkinParts::default();
     parts.set_cape_enabled(set.contains(&SkinPart::Cape));
     parts.set_jacket_enabled(set.contains(&SkinPart::Jacket));

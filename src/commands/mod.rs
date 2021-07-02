@@ -34,6 +34,7 @@ use crate::{
     proxy::SplinterProxy,
 };
 
+mod kick;
 mod list;
 mod stop;
 
@@ -70,18 +71,17 @@ impl Clone for CommandSender {
     fn clone(&self) -> Self {
         match self {
             Self::Console => Self::Console,
-            Self::Player(client) => Self::Player(Arc::clone(&client)),
+            Self::Player(client) => Self::Player(Arc::clone(client)),
         }
     }
 }
 
+pub type CommandFn = Box<
+    dyn Send + Sync + Fn(&Arc<SplinterProxy>, &str, &[&str], &CommandSender) -> anyhow::Result<()>,
+>;
 pub struct SplinterCommand {
     pub name: &'static str,
-    pub action: Box<
-        dyn Send
-            + Sync
-            + Fn(&Arc<SplinterProxy>, &str, &[&str], &CommandSender) -> anyhow::Result<()>,
-    >,
+    pub action: CommandFn,
 }
 
 inventory::collect!(SplinterCommand);
@@ -113,7 +113,7 @@ inventory::submit! {
 }
 
 async fn init(proxy: Arc<SplinterProxy>) -> anyhow::Result<()> {
-    let mut stdin = Unblock::new(unblock(|| io::stdin()).await);
+    let mut stdin = Unblock::new(unblock(io::stdin).await);
     smol::spawn(async move {
         loop {
             let line = match stdin
@@ -133,16 +133,21 @@ async fn init(proxy: Arc<SplinterProxy>) -> anyhow::Result<()> {
                 }
             };
             let line = line.trim();
-            if line.len() == 0 {
+            if line.is_empty() {
                 continue;
             }
             let mut split = line.split_whitespace();
             let cmd = split.next().unwrap(); // at this point, something is in the command
             let args = split.collect::<Vec<&str>>();
-            if let Err(e) =
-                process_command(&proxy, cmd, args.as_slice(), &CommandSender::Console).await
-            {
-                error!("Command failed: {:?}", e);
+            let sender = CommandSender::Console;
+            if let Err(e) = process_command(&proxy, cmd, args.as_slice(), &sender).await {
+                if let Err(e) = sender.respond(format!("Command failed: {:?}", e)).await {
+                    error!(
+                        "Failed to send command failure message to {}: {}",
+                        sender.name(),
+                        e
+                    );
+                }
             }
         }
     })

@@ -11,7 +11,7 @@ use simplelog::{
     WriteLogger,
 };
 
-pub const LATEST_LOG_FILENAME: &'static str = "./latest.log";
+pub const LATEST_LOG_FILENAME: &str = "./latest.log";
 
 pub fn init() -> anyhow::Result<()> {
     let config = ConfigBuilder::default().set_time_to_local(true).build();

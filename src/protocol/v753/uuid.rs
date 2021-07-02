@@ -9,7 +9,7 @@ use mcproto_rs::{
     },
 };
 
-use super::RelayPassFn;
+use super::RelayPass;
 use crate::{
     mapping::SplinterMapping,
     protocol::{
@@ -19,7 +19,7 @@ use crate::{
 };
 
 inventory::submit! {
-    RelayPassFn(Box::new(|proxy, sender, mut lazy_packet, map, destination| {
+    RelayPass(Box::new(|_proxy, sender, lazy_packet, map, destination| {
         if has_uuids(lazy_packet.kind()) {
             if let Ok(ref mut packet) = lazy_packet.packet() {
                 if let Some(server_id) = map_uuid(map, packet, sender) {
@@ -119,9 +119,7 @@ pub fn map_uuid(
                         PlayerInfoActionList::UpdateDisplayName(ref mut arr) => {
                             arr.iter_mut().map(|plinfo| &mut plinfo.uuid).collect()
                         }
-                        PlayerInfoActionList::Remove(ref mut arr) => {
-                            arr.iter_mut().map(|uuid| uuid).collect()
-                        }
+                        PlayerInfoActionList::Remove(ref mut arr) => arr.iter_mut().collect(),
                     };
                     for uuid in uuid_arr.into_iter() {
                         *uuid = map.map_uuid_server_to_proxy(server.id, *uuid);

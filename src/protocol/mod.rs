@@ -64,8 +64,8 @@ impl ProtocolVersion {
             _ => anyhow::bail!("Invalid or unimplemented protocol version \"{}\"", version),
         })
     }
-    fn to_number(&self) -> i32 {
-        match &self {
+    fn to_number(self) -> i32 {
+        match self {
             ProtocolVersion::V753 => 753,
             ProtocolVersion::V754 => 754,
             ProtocolVersion::V755 => 755,
@@ -146,7 +146,7 @@ pub async fn handle_handshake(
                         v753::handle_client_login(conn, addr, proxy).await?;
                     }
                     Ok(ProtocolVersion::V755) => todo!(),
-                    Err(e) => {
+                    Err(_e) => {
                         // invalid version, send login disconnect
                         conn.set_state(State::Login);
                         conn.write_packet_async(Packet753::LoginDisconnect(LoginDisconnectSpec {
