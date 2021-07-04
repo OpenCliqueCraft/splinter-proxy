@@ -3,7 +3,6 @@ use std::fs::File;
 use simplelog::{
     ColorChoice,
     CombinedLogger,
-    Config,
     ConfigBuilder,
     LevelFilter,
     TermLogger,

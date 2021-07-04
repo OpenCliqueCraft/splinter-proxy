@@ -1,9 +1,9 @@
 use mcproto_rs::{
     types::VarInt,
-    v1_16_3::{
+    v1_17_0::{
         EntityMetadataFieldData,
-        Packet753,
-        Packet753Kind,
+        Packet755,
+        Packet755Kind,
     },
 };
 
@@ -31,46 +31,47 @@ inventory::submit! {
     }))
 }
 
-pub fn has_eids(kind: Packet753Kind) -> bool {
+pub fn has_eids(kind: Packet755Kind) -> bool {
     matches!(
         kind,
-        Packet753Kind::PlayEntityAnimation
-            | Packet753Kind::PlayBlockBreakAnimation
-            | Packet753Kind::PlayEntityStatus
-            | Packet753Kind::PlayOpenHorseWindow
-            | Packet753Kind::PlayEntityPosition
-            | Packet753Kind::PlayEntityPositionAndRotation
-            | Packet753Kind::PlayEntityRotation
-            | Packet753Kind::PlayEntityMovement
-            | Packet753Kind::PlayRemoveEntityEffect
-            | Packet753Kind::PlayEntityHeadLook
-            | Packet753Kind::PlayCamera
-            | Packet753Kind::PlayEntityVelocity
-            | Packet753Kind::PlayEntityEquipment
-            | Packet753Kind::PlayEntitySoundEffect
-            | Packet753Kind::PlayEntityTeleport
-            | Packet753Kind::PlayEntityProperties
-            | Packet753Kind::PlayEntityEffect
-            | Packet753Kind::PlayFacePlayer
-            | Packet753Kind::PlayAttachEntity
-            | Packet753Kind::PlaySpawnEntity
-            | Packet753Kind::PlaySpawnExperienceOrb
-            | Packet753Kind::PlaySpawnLivingEntity
-            | Packet753Kind::PlaySpawnPainting
-            | Packet753Kind::PlaySpawnPlayer
-            | Packet753Kind::PlaySetPassengers
-            | Packet753Kind::PlayCollectItem
-            | Packet753Kind::PlayEntityMetadata
-            | Packet753Kind::PlayDestroyEntities
-            | Packet753Kind::PlayQueryEntityNbt
-            | Packet753Kind::PlayInteractEntity
-            | Packet753Kind::PlayEntityAction
-            | Packet753Kind::PlayUpdateCommandBlockMinecart
+        Packet755Kind::PlayEntityAnimation
+            | Packet755Kind::PlayBlockBreakAnimation
+            | Packet755Kind::PlayEntityStatus
+            | Packet755Kind::PlayOpenHorseWindow
+            | Packet755Kind::PlayEntityPosition
+            | Packet755Kind::PlayEntityPositionAndRotation
+            | Packet755Kind::PlayEntityRotation
+            | Packet755Kind::PlayRemoveEntityEffect
+            | Packet755Kind::PlayEntityHeadLook
+            | Packet755Kind::PlayCamera
+            | Packet755Kind::PlayEntityVelocity
+            | Packet755Kind::PlayEntityEquipment
+            | Packet755Kind::PlayEntitySoundEffect
+            | Packet755Kind::PlayEntityTeleport
+            | Packet755Kind::PlayEntityProperties
+            | Packet755Kind::PlayEntityEffect
+            | Packet755Kind::PlayFacePlayer
+            | Packet755Kind::PlayAttachEntity
+            | Packet755Kind::PlayEndCombatEvent
+            | Packet755Kind::PlayDeathCombatEvent
+            | Packet755Kind::PlaySpawnEntity
+            | Packet755Kind::PlaySpawnExperienceOrb
+            | Packet755Kind::PlaySpawnLivingEntity
+            | Packet755Kind::PlaySpawnPainting
+            | Packet755Kind::PlaySpawnPlayer
+            | Packet755Kind::PlaySetPassengers
+            | Packet755Kind::PlayCollectItem
+            | Packet755Kind::PlayEntityMetadata
+            | Packet755Kind::PlayDestroyEntity
+            | Packet755Kind::PlayQueryEntityNbt
+            | Packet755Kind::PlayInteractEntity
+            | Packet755Kind::PlayEntityAction
+            | Packet755Kind::PlayUpdateCommandBlockMinecart
     )
 }
 pub fn map_eid(
     map: &mut SplinterMapping,
-    packet: &mut Packet753,
+    packet: &mut Packet755,
     sender: &PacketSender,
 ) -> Option<u64> {
     match sender {
@@ -79,35 +80,36 @@ pub fn map_eid(
             let (nums, varnums): (Vec<&mut i32>, Vec<&mut VarInt>) = match packet {
                 // TODO: is it possible to use something less intensive than a vec here?
                 // trivial
-                Packet753::PlayEntityAnimation(body) => (vec![], vec![&mut body.entity_id]),
-                Packet753::PlayBlockBreakAnimation(body) => (vec![], vec![&mut body.entity_id]),
-                Packet753::PlayEntityStatus(body) => (vec![&mut body.entity_id], vec![]),
-                Packet753::PlayOpenHorseWindow(body) => (vec![&mut body.entity_id], vec![]),
-                Packet753::PlayEntityPosition(body) => (vec![], vec![&mut body.entity_id]),
-                Packet753::PlayEntityPositionAndRotation(body) => {
+                Packet755::PlayEntityAnimation(body) => (vec![], vec![&mut body.entity_id]),
+                Packet755::PlayBlockBreakAnimation(body) => (vec![], vec![&mut body.entity_id]),
+                Packet755::PlayEntityStatus(body) => (vec![&mut body.entity_id], vec![]),
+                Packet755::PlayOpenHorseWindow(body) => (vec![&mut body.entity_id], vec![]),
+                Packet755::PlayEntityPosition(body) => (vec![], vec![&mut body.entity_id]),
+                Packet755::PlayEntityPositionAndRotation(body) => {
                     (vec![], vec![&mut body.entity_id])
                 }
-                Packet753::PlayEntityRotation(body) => (vec![], vec![&mut body.entity_id]),
-                Packet753::PlayEntityMovement(body) => (vec![], vec![&mut body.entity_id]),
-                Packet753::PlayRemoveEntityEffect(body) => (vec![], vec![&mut body.entity_id]),
-                Packet753::PlayEntityHeadLook(body) => (vec![], vec![&mut body.entity_id]),
-                Packet753::PlayCamera(body) => (vec![], vec![&mut body.camera_id]),
-                Packet753::PlayEntityVelocity(body) => (vec![], vec![&mut body.entity_id]),
-                Packet753::PlayEntityEquipment(body) => (vec![], vec![&mut body.entity_id]),
-                Packet753::PlayEntitySoundEffect(body) => (vec![], vec![&mut body.entity_id]),
-                Packet753::PlayEntityTeleport(body) => (vec![], vec![&mut body.entity_id]),
-                Packet753::PlayEntityProperties(body) => (vec![], vec![&mut body.entity_id]),
-                Packet753::PlayEntityEffect(body) => (vec![], vec![&mut body.entity_id]),
+                Packet755::PlayEntityRotation(body) => (vec![], vec![&mut body.entity_id]),
+                Packet755::PlayRemoveEntityEffect(body) => (vec![], vec![&mut body.entity_id]),
+                Packet755::PlayEntityHeadLook(body) => (vec![], vec![&mut body.entity_id]),
+                Packet755::PlayCamera(body) => (vec![], vec![&mut body.camera_id]),
+                Packet755::PlayEntityVelocity(body) => (vec![], vec![&mut body.entity_id]),
+                Packet755::PlayEntityEquipment(body) => (vec![], vec![&mut body.entity_id]),
+                Packet755::PlayEntitySoundEffect(body) => (vec![], vec![&mut body.entity_id]),
+                Packet755::PlayEntityTeleport(body) => (vec![], vec![&mut body.entity_id]),
+                Packet755::PlayEntityProperties(body) => (vec![], vec![&mut body.entity_id]),
+                Packet755::PlayEntityEffect(body) => (vec![], vec![&mut body.entity_id]),
+                Packet755::PlayEndCombatEvent(body) => (vec![&mut body.entity_id], vec![]),
+                Packet755::PlayDeathCombatEvent(body) => (vec![&mut body.entity_id], vec![]),
 
                 // slightly more complex
-                Packet753::PlayFacePlayer(body) => {
+                Packet755::PlayFacePlayer(body) => {
                     if let Some(target) = body.entity.as_mut() {
                         (vec![], vec![&mut target.entity_id])
                     } else {
                         (vec![], vec![])
                     }
                 }
-                Packet753::PlayAttachEntity(body) => (
+                Packet755::PlayAttachEntity(body) => (
                     if body.holding_entity_id < 0 {
                         vec![&mut body.attached_entity_id]
                     } else {
@@ -115,11 +117,11 @@ pub fn map_eid(
                     },
                     vec![],
                 ),
-                Packet753::PlayCollectItem(body) => (
+                Packet755::PlayCollectItem(body) => (
                     vec![],
                     vec![&mut body.collected_entity_id, &mut body.collector_entity_id],
                 ),
-                Packet753::PlaySetPassengers(body) => {
+                Packet755::PlaySetPassengers(body) => {
                     // TODO: spelling error in mcproto
                     (
                         vec![],
@@ -134,7 +136,7 @@ pub fn map_eid(
                 }
 
                 // entity spawning
-                Packet753::PlaySpawnEntity(body) => {
+                Packet755::PlaySpawnEntity(body) => {
                     let entity_type = *body.entity_type;
                     entity_data = Some(EntityData {
                         id: *body.entity_id,
@@ -164,28 +166,28 @@ pub fn map_eid(
                         vec![&mut body.entity_id],
                     )
                 }
-                Packet753::PlaySpawnExperienceOrb(body) => {
+                Packet755::PlaySpawnExperienceOrb(body) => {
                     entity_data = Some(EntityData {
                         id: *body.entity_id,
                         entity_type: 24,
                     });
                     (vec![], vec![&mut body.entity_id])
                 }
-                Packet753::PlaySpawnLivingEntity(body) => {
+                Packet755::PlaySpawnLivingEntity(body) => {
                     entity_data = Some(EntityData {
                         id: *body.entity_id,
                         entity_type: *body.entity_type,
                     });
                     (vec![], vec![&mut body.entity_id])
                 }
-                Packet753::PlaySpawnPainting(body) => {
+                Packet755::PlaySpawnPainting(body) => {
                     entity_data = Some(EntityData {
                         id: *body.entity_id,
                         entity_type: 55,
                     });
                     (vec![], vec![&mut body.entity_id])
                 }
-                Packet753::PlaySpawnPlayer(body) => {
+                Packet755::PlaySpawnPlayer(body) => {
                     entity_data = Some(EntityData {
                         id: *body.entity_id,
                         entity_type: 106,
@@ -193,7 +195,7 @@ pub fn map_eid(
                     (vec![], vec![&mut body.entity_id])
                 }
                 // complex
-                Packet753::PlayEntityMetadata(body) => {
+                Packet755::PlayEntityMetadata(body) => {
                     // we specially need to handle mapping here for the proxy side eid
                     let proxy_eid = map.map_eid_server_to_proxy(server.id, *body.entity_id);
                     body.entity_id = proxy_eid.into();
@@ -202,7 +204,7 @@ pub fn map_eid(
                             27 => {
                                 // fireworks
                                 if let Some(EntityMetadataFieldData::OptVarInt(ref mut id)) =
-                                    body.metadata.get_mut(8)
+                                    body.metadata.get_mut(9)
                                 {
                                     let found_id: i32 = **id;
                                     if found_id > 0 {
@@ -216,7 +218,7 @@ pub fn map_eid(
                             107 => {
                                 // fishing hook
                                 if let Some(EntityMetadataFieldData::VarInt(ref mut id)) =
-                                    body.metadata.get_mut(7)
+                                    body.metadata.get_mut(8)
                                 {
                                     let found_id: i32 = **id;
                                     if found_id > 0 {
@@ -229,7 +231,7 @@ pub fn map_eid(
                             }
                             97 => {
                                 // wither
-                                for index in [15, 16, 17] {
+                                for index in [16, 17, 18] {
                                     if let Some(EntityMetadataFieldData::VarInt(ref mut id)) =
                                         body.metadata.get_mut(index)
                                     {
@@ -246,7 +248,7 @@ pub fn map_eid(
                             31 | 17 => {
                                 // guardian or elder guardian
                                 if let Some(EntityMetadataFieldData::VarInt(ref mut id)) =
-                                    body.metadata.get_mut(16)
+                                    body.metadata.get_mut(17)
                                 {
                                     let found_id: i32 = **id;
                                     if found_id > 0 {
@@ -263,18 +265,17 @@ pub fn map_eid(
                     }
                     (vec![], vec![])
                 }
-                Packet753::PlayDestroyEntities(body) => {
-                    for eid in body.entity_ids.iter_mut() {
-                        // since we're removing the ids from the mapping table here, we have to map them here as well
-                        let server_eid = **eid;
-                        *eid = map.map_eid_server_to_proxy(server.id, **eid).into();
-                        if let Some((proxy_eid, _)) =
-                            map.eids.remove_by_right(&(server.id, server_eid))
-                        {
-                            // debug!("destroying map s->p {} to {}", server_eid, proxy_eid);
-                            map.entity_data.remove(&proxy_eid);
-                            map.eid_gen.return_id(proxy_eid as u64);
-                        }
+                Packet755::PlayDestroyEntity(ref mut body) => {
+                    // since we're removing the id from the mapping table here, we have to map them here as well
+                    let server_eid = *body.entity_id;
+                    body.entity_id = map
+                        .map_eid_server_to_proxy(server.id, *body.entity_id)
+                        .into();
+                    if let Some((proxy_eid, _)) = map.eids.remove_by_right(&(server.id, server_eid))
+                    {
+                        // debug!("destroying map s->p {} to {}", server_eid, proxy_eid);
+                        map.entity_data.remove(&proxy_eid);
+                        map.eid_gen.return_id(proxy_eid as u64);
                     }
                     (vec![], vec![])
                 }
@@ -294,10 +295,10 @@ pub fn map_eid(
         }
         PacketSender::Proxy(_) => {
             let eid = match packet {
-                Packet753::PlayQueryEntityNbt(body) => &mut body.entity_id,
-                Packet753::PlayInteractEntity(body) => &mut body.entity_id,
-                Packet753::PlayEntityAction(body) => &mut body.entity_id,
-                Packet753::PlayUpdateCommandBlockMinecart(body) => &mut body.entity_id,
+                Packet755::PlayQueryEntityNbt(body) => &mut body.entity_id,
+                Packet755::PlayInteractEntity(body) => &mut body.entity_id,
+                Packet755::PlayEntityAction(body) => &mut body.entity_id,
+                Packet755::PlayUpdateCommandBlockMinecart(body) => &mut body.entity_id,
                 _ => unreachable!(),
             };
             if let Ok((server_id, server_eid)) = map.map_eid_proxy_to_server(**eid) {

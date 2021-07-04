@@ -12,10 +12,6 @@ use std::{
     time::Duration,
 };
 
-use mcproto_rs::{
-    protocol::RawPacket,
-    v1_16_3::RawPacket753,
-};
 use smol::{
     lock::Mutex,
     Async,
@@ -25,13 +21,11 @@ use smol::{
 use crate::{
     client::{
         self,
-        ClientVersion,
         SplinterClient,
     },
     config::SplinterConfig,
     mapping::SplinterMapping,
     protocol::{
-        version,
         ProtocolVersion,
         Tags,
     },

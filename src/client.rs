@@ -8,25 +8,15 @@ use std::{
         SocketAddr,
         TcpStream,
     },
-    sync::{
-        Arc,
-        RwLock,
-    },
+    sync::Arc,
 };
 
 use arc_swap::ArcSwap;
 use async_compat::CompatExt;
 use async_dup::Arc as AsyncArc;
-use craftio_rs::{
-    CraftAsyncWriter,
-    CraftConnection,
-};
+use craftio_rs::CraftConnection;
 use mcproto_rs::{
-    protocol::{
-        HasPacketKind,
-        PacketDirection,
-        RawPacket,
-    },
+    protocol::PacketDirection,
     uuid::UUID4,
 };
 use smol::{
@@ -37,18 +27,11 @@ use smol::{
 use crate::{
     chat::ToChat,
     commands::CommandSender,
-    events::LazyDeserializedPacket,
     keepalive,
     mapping,
     protocol::{
         self,
-        version::{
-            V753,
-            V755,
-        },
         AsyncCraftWriter,
-        ConnectionVersion,
-        ProtocolVersion,
     },
     proxy::{
         ClientKickReason,
@@ -107,19 +90,19 @@ impl SplinterClient {
     ) -> anyhow::Result<()> {
         match self.version {
             ClientVersion::V753 => self.send_message_v753(chat, sender).await,
-            ClientVersion::V755 => todo!(),
+            ClientVersion::V755 => self.send_message_v755(chat, sender).await,
         }
     }
     pub async fn send_kick(&self, reason: ClientKickReason) -> anyhow::Result<()> {
         match self.version {
             ClientVersion::V753 => self.send_kick_v753(reason).await,
-            ClientVersion::V755 => todo!(),
+            ClientVersion::V755 => self.send_kick_v755(reason).await,
         }
     }
     pub async fn send_keep_alive(&self, time: u128) -> anyhow::Result<()> {
         match self.version {
             ClientVersion::V753 => self.send_keep_alive_v753(time).await,
-            ClientVersion::V755 => todo!(),
+            ClientVersion::V755 => self.send_keep_alive_v755(time).await,
         }
     }
     pub async fn set_alive(&self, value: bool) {
@@ -128,7 +111,7 @@ impl SplinterClient {
     pub async fn relay_message(&self, msg: &str, server_id: u64) -> anyhow::Result<()> {
         match self.version {
             ClientVersion::V753 => self.relay_message_v753(msg, server_id).await,
-            ClientVersion::V755 => todo!(),
+            ClientVersion::V755 => self.relay_message_v755(msg, server_id).await,
         }
     }
     pub fn server_id(&self) -> u64 {
@@ -199,12 +182,7 @@ pub fn handle(
     let conn = CraftConnection::from_async((reader, writer), PacketDirection::ServerBound);
     smol::spawn(async move {
         // wait for initial handshake
-        if let Err(e) = match proxy.protocol {
-            ProtocolVersion::V753 | ProtocolVersion::V754 => {
-                protocol::handle_handshake(conn, addr, proxy).await
-            }
-            ProtocolVersion::V755 => todo!(),
-        } {
+        if let Err(e) = protocol::handle_handshake(conn, addr, proxy).await {
             error!("Failed to handle handshake: {}", e);
         }
     })

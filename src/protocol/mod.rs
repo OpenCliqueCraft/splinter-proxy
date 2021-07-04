@@ -56,6 +56,7 @@ use crate::{
 
 pub mod v753;
 pub mod v755;
+pub mod version;
 
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub enum ProtocolVersion {
@@ -94,10 +95,11 @@ pub struct TagList(HashMap<String, Vec<String>>);
 /// Contains tags for the tag lists of blocks, items, entities, and fluids.
 #[derive(Clone, Debug)]
 pub struct Tags {
-    pub blocks: TagList,
-    pub items: TagList,
-    pub fluids: TagList,
-    pub entities: TagList,
+    // pub blocks: TagList,
+    // pub items: TagList,
+    // pub fluids: TagList,
+    // pub entities: TagList,
+    pub tags: HashMap<String, TagList>,
 }
 
 /// Loads a JSON file into a Vec of i32 and String pairs
@@ -143,7 +145,9 @@ pub async fn handle_handshake(
                     Ok(ProtocolVersion::V753 | ProtocolVersion::V754) => {
                         v753::handle_client_status(conn, addr, proxy).await?
                     }
-                    Ok(ProtocolVersion::V755) => todo!(),
+                    Ok(ProtocolVersion::V755) => {
+                        v755::handle_client_status(conn, addr, proxy).await?
+                    }
                     Err(e) => {
                         // invalid version, will just fall back to 753
                         v753::handle_client_status(conn, addr, proxy).await?;
@@ -154,7 +158,9 @@ pub async fn handle_handshake(
                     Ok(ProtocolVersion::V753 | ProtocolVersion::V754) => {
                         v753::handle_client_login(conn, addr, proxy).await?;
                     }
-                    Ok(ProtocolVersion::V755) => todo!(),
+                    Ok(ProtocolVersion::V755) => {
+                        v755::handle_client_login(conn, addr, proxy).await?
+                    }
                     Err(_e) => {
                         // invalid version, send login disconnect
                         conn.set_state(State::Login);
@@ -215,7 +221,17 @@ impl SplinterClient {
                     )
                     .await
                 }
-                ClientVersion::V755 => todo!(),
+                ClientVersion::V755 => {
+                    v755::handle_server_packet(
+                        &proxy,
+                        self,
+                        &mut server_reader,
+                        &server,
+                        destination,
+                        &sender,
+                    )
+                    .await
+                }
             } {
                 Ok(Some(())) => {}
                 Ok(None) => break, // connection closed
@@ -255,7 +271,16 @@ impl SplinterClient {
                     )
                     .await
                 }
-                ClientVersion::V755 => todo!(),
+                ClientVersion::V755 => {
+                    v755::handle_client_packet(
+                        &proxy,
+                        self,
+                        &mut client_reader,
+                        destination,
+                        &sender,
+                    )
+                    .await
+                }
             } {
                 Ok(Some(())) => {}
                 Ok(None) => break,
@@ -276,25 +301,4 @@ impl SplinterClient {
 
 pub trait ConnectionVersion<'a> {
     type Protocol: RawPacket<'a> + HasPacketKind + Send + Sync;
-}
-pub mod version {
-    use mcproto_rs::{
-        protocol::{
-            HasPacketKind,
-            RawPacket,
-        },
-        v1_16_3::RawPacket753,
-        v1_17_0::RawPacket755,
-    };
-
-    use super::ConnectionVersion;
-
-    pub struct V753;
-    impl<'a> ConnectionVersion<'a> for V753 {
-        type Protocol = RawPacket753<'a>;
-    }
-    pub struct V755;
-    impl<'a> ConnectionVersion<'a> for V755 {
-        type Protocol = RawPacket755<'a>;
-    }
 }

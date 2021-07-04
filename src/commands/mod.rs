@@ -1,9 +1,5 @@
 use std::{
-    io::{
-        self,
-        Stdin,
-    },
-    pin::Pin,
+    io,
     sync::Arc,
 };
 
@@ -11,26 +7,13 @@ use blocking::{
     unblock,
     Unblock,
 };
-use futures_lite::Future;
 use mcproto_rs::uuid::UUID4;
-use smol::{
-    io::AsyncReadExt,
-    Async,
-};
+use smol;
 
 use crate::{
     chat::ToChat,
-    client::{
-        ClientVersion,
-        SplinterClient,
-    },
-    events::LazyDeserializedPacket,
+    client::SplinterClient,
     init::SplinterSystem,
-    mapping::SplinterMapping,
-    protocol::{
-        version::V753,
-        PacketSender,
-    },
     proxy::SplinterProxy,
 };
 

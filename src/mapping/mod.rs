@@ -7,22 +7,7 @@ use std::{
 };
 
 use bimap::BiHashMap;
-use mcproto_rs::{
-    protocol::{
-        HasPacketKind,
-        RawPacket,
-    },
-    types::VarInt,
-    uuid::UUID4,
-};
-
-use crate::{
-    events::LazyDeserializedPacket,
-    protocol::{
-        ConnectionVersion,
-        PacketSender,
-    },
-};
+use mcproto_rs::uuid::UUID4;
 
 pub mod eid;
 pub mod uuid;

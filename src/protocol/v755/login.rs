@@ -14,7 +14,7 @@ use mcproto_rs::{
         PacketDirection,
         State,
     },
-    v1_16_3::{
+    v1_17_0::{
         ClientChatMode,
         ClientDisplayedSkinParts,
         ClientMainHand,
@@ -22,11 +22,11 @@ use mcproto_rs::{
         HandshakeSpec,
         LoginSetCompressionSpec,
         LoginStartSpec,
-        Packet753,
+        Packet755,
         PlayClientSettingsSpec,
         PlayServerPluginMessageSpec,
         PlayTagsSpec,
-        RawPacket753,
+        RawPacket755,
     },
 };
 use smol::{
@@ -62,7 +62,7 @@ pub async fn handle_client_login(
         Arc::clone(&proxy),
         String::new(),
         client_conn_writer,
-        ClientVersion::V753,
+        ClientVersion::V755,
     );
     let mut server_conn: Option<AsyncCraftConnection> = None;
     let mut server_opt = None;
@@ -71,20 +71,20 @@ pub async fn handle_client_login(
         let packet = match next_sender {
             PacketDirection::ServerBound => {
                 client_conn_reader
-                    .read_packet_async::<RawPacket753>()
+                    .read_packet_async::<RawPacket755>()
                     .await?
             }
             PacketDirection::ClientBound => {
                 server_conn
                     .as_mut()
                     .unwrap()
-                    .read_packet_async::<RawPacket753>()
+                    .read_packet_async::<RawPacket755>()
                     .await?
             }
         };
         if let Some(packet) = packet {
             match packet {
-                Packet753::LoginStart(data) => {
+                Packet755::LoginStart(data) => {
                     // debug!("got login start from client");
                     client.set_name(data.name);
                     info!("\"{}\" logging in from {}", &client.name, addr);
@@ -106,7 +106,7 @@ pub async fn handle_client_login(
                         &client.name, server.address
                     );
                     if let Err(e) = server_connection
-                        .write_packet_async(Packet753::Handshake(HandshakeSpec {
+                        .write_packet_async(Packet755::Handshake(HandshakeSpec {
                             version: proxy.protocol.to_number().into(),
                             server_address: format!("{}", server.address.ip()),
                             server_port: server.address.port(),
@@ -123,7 +123,7 @@ pub async fn handle_client_login(
                     }
                     server_connection.set_state(State::Login);
                     if let Err(e) = server_connection
-                        .write_packet_async(Packet753::LoginStart(LoginStartSpec {
+                        .write_packet_async(Packet755::LoginStart(LoginStartSpec {
                             name: client.name.clone(),
                         }))
                         .await
@@ -139,7 +139,7 @@ pub async fn handle_client_login(
                     server_conn = Some(server_connection);
                     next_sender = PacketDirection::ClientBound;
                 }
-                Packet753::LoginSetCompression(body) => {
+                Packet755::LoginSetCompression(body) => {
                     // debug!("got set compression from server");
                     let threshold = *body.threshold;
                     server_conn
@@ -152,14 +152,14 @@ pub async fn handle_client_login(
                         });
                     next_sender = PacketDirection::ClientBound;
                 }
-                Packet753::LoginSuccess(mut body) => {
+                Packet755::LoginSuccess(mut body) => {
                     // debug!("got login success from server");
                     if let Some(threshold) = proxy.config.compression_threshold {
                         if let Err(e) = client
                             .writer
                             .lock()
                             .await
-                            .write_packet_async(Packet753::LoginSetCompression(
+                            .write_packet_async(Packet755::LoginSetCompression(
                                 LoginSetCompressionSpec {
                                     threshold: threshold.into(),
                                 },
@@ -188,7 +188,7 @@ pub async fn handle_client_login(
                         .writer
                         .lock()
                         .await
-                        .write_packet_async(Packet753::LoginSuccess(body))
+                        .write_packet_async(Packet755::LoginSuccess(body))
                         .await
                         .map_err(|e| {
                             anyhow!(
@@ -203,7 +203,7 @@ pub async fn handle_client_login(
                     // debug!("set client and server connection states to play");
                     next_sender = PacketDirection::ClientBound;
                 }
-                Packet753::PlayJoinGame(mut body) => {
+                Packet755::PlayJoinGame(mut body) => {
                     // debug!("got join game from server");
                     body.entity_id = proxy
                         .mapping
@@ -214,7 +214,7 @@ pub async fn handle_client_login(
                         .writer
                         .lock()
                         .await
-                        .write_packet_async(Packet753::PlayJoinGame(body))
+                        .write_packet_async(Packet755::PlayJoinGame(body))
                         .await
                         .map_err(|e| {
                             anyhow!(
@@ -227,7 +227,7 @@ pub async fn handle_client_login(
                         .writer
                         .lock()
                         .await
-                        .write_packet_async(Packet753::PlayServerPluginMessage(
+                        .write_packet_async(Packet755::PlayServerPluginMessage(
                             PlayServerPluginMessageSpec {
                                 channel: "minecraft:brand".into(),
                                 data: [&[8u8], "Splinter".as_bytes()].concat().into(), // this is just a string. that first number there is the number of characters.
@@ -240,18 +240,18 @@ pub async fn handle_client_login(
                     // debug!("wrote plugin message to client");
                     next_sender = PacketDirection::ServerBound;
                 }
-                Packet753::PlayClientPluginMessage(_body) => {
+                Packet755::PlayClientPluginMessage(_body) => {
                     // debug!("got plugin message from client: {:?}", body);
                     //...
                     next_sender = PacketDirection::ServerBound;
                 }
-                Packet753::PlayClientSettings(body) => {
+                Packet755::PlayClientSettings(body) => {
                     // debug!("got client settings from client");
                     client.settings.store(Arc::new(body.clone().into()));
                     server_conn
                         .as_mut()
                         .unwrap()
-                        .write_packet_async(Packet753::PlayClientSettings(body))
+                        .write_packet_async(Packet755::PlayClientSettings(body))
                         .await
                         .map_err(|e| {
                             anyhow!(
@@ -267,7 +267,7 @@ pub async fn handle_client_login(
                             .writer
                             .lock()
                             .await
-                            .write_packet_async(Packet753::PlayTags(tag_packet))
+                            .write_packet_async(Packet755::PlayTags(tag_packet))
                             .await
                             .map_err(|e| {
                                 anyhow!(
@@ -281,10 +281,10 @@ pub async fn handle_client_login(
                 }
                 packet
                 @
-                (Packet753::PlayServerDifficulty(_)
-                | Packet753::PlayServerPlayerAbilities(_)
-                | Packet753::PlayDeclareRecipes(_)
-                | Packet753::PlayServerHeldItemChange(_)) => {
+                (Packet755::PlayServerDifficulty(_)
+                | Packet755::PlayServerPlayerAbilities(_)
+                | Packet755::PlayDeclareRecipes(_)
+                | Packet755::PlayServerHeldItemChange(_)) => {
                     // debug!("got {:?}", packet.kind());
                     client
                         .writer
@@ -297,7 +297,7 @@ pub async fn handle_client_login(
                         })?;
                     next_sender = PacketDirection::ClientBound;
                 }
-                Packet753::PlayTags(body) => {
+                Packet755::PlayTags(body) => {
                     // debug!("got tags from server");
                     if proxy.tags.lock().await.is_none() {
                         let tags = Tags::from(&body);
@@ -309,7 +309,7 @@ pub async fn handle_client_login(
                             .writer
                             .lock()
                             .await
-                            .write_packet_async(Packet753::PlayTags(tag_packet))
+                            .write_packet_async(Packet755::PlayTags(tag_packet))
                             .await
                             .map_err(|e| {
                                 anyhow!(

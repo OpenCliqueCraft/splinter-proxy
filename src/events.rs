@@ -1,32 +1,10 @@
-use std::{
-    collections::HashMap,
-    sync::Arc,
+use mcproto_rs::protocol::{
+    HasPacketKind,
+    PacketErr,
+    RawPacket,
 };
 
-use craftio_rs::CraftAsyncWriter;
-use mcproto_rs::{
-    protocol::{
-        HasPacketKind,
-        PacketErr,
-        RawPacket,
-    },
-    v1_16_3::RawPacket753,
-};
-use smol::channel;
-
-use crate::{
-    client::SplinterClient,
-    protocol::{
-        version::{
-            V753,
-            V755,
-        },
-        AsyncCraftWriter,
-        ConnectionVersion,
-    },
-    proxy::SplinterProxy,
-    server::SplinterServerConnection,
-};
+use crate::protocol::ConnectionVersion;
 
 /// A packet that is lazily deserialized when the deserialized packet is accessed
 pub struct LazyDeserializedPacket<'a, T>

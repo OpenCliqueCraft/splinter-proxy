@@ -76,11 +76,25 @@ pub fn tags_to_proto_tags(
 
 impl From<&PlayTagsSpec> for Tags {
     fn from(proto_tags: &PlayTagsSpec) -> Tags {
+        let mut tags = HashMap::new();
+        tags.insert(
+            "minecraft:block".into(),
+            proto_tags_to_tags(&proto_tags.block_tags, &BLOCK_MAP),
+        );
+        tags.insert(
+            "minecraft:item".into(),
+            proto_tags_to_tags(&proto_tags.item_tags, &ITEM_MAP),
+        );
+        tags.insert(
+            "minecraft:fluid".into(),
+            proto_tags_to_tags(&proto_tags.fluid_tags, &FLUID_MAP),
+        );
+        tags.insert(
+            "minecraft:entity_type".into(),
+            proto_tags_to_tags(&proto_tags.entity_tags, &ENTITY_MAP),
+        );
         Tags {
-            blocks: proto_tags_to_tags(&proto_tags.block_tags, &BLOCK_MAP),
-            items: proto_tags_to_tags(&proto_tags.item_tags, &ITEM_MAP),
-            fluids: proto_tags_to_tags(&proto_tags.fluid_tags, &FLUID_MAP),
-            entities: proto_tags_to_tags(&proto_tags.entity_tags, &ENTITY_MAP),
+            tags,
         }
     }
 }
@@ -88,10 +102,22 @@ impl From<&PlayTagsSpec> for Tags {
 impl From<&Tags> for PlayTagsSpec {
     fn from(tags: &Tags) -> PlayTagsSpec {
         PlayTagsSpec {
-            block_tags: tags_to_proto_tags(&tags.blocks, &BLOCK_MAP),
-            item_tags: tags_to_proto_tags(&tags.items, &ITEM_MAP),
-            fluid_tags: tags_to_proto_tags(&tags.fluids, &FLUID_MAP),
-            entity_tags: tags_to_proto_tags(&tags.entities, &ENTITY_MAP),
+            block_tags: tags_to_proto_tags(
+                &tags.tags.get("minecraft:block".into()).unwrap(),
+                &BLOCK_MAP,
+            ),
+            item_tags: tags_to_proto_tags(
+                &tags.tags.get("minecraft:item".into()).unwrap(),
+                &ITEM_MAP,
+            ),
+            fluid_tags: tags_to_proto_tags(
+                &tags.tags.get("minecraft:fluid".into()).unwrap(),
+                &FLUID_MAP,
+            ),
+            entity_tags: tags_to_proto_tags(
+                &tags.tags.get("minecraft:entity_type".into()).unwrap(),
+                &ENTITY_MAP,
+            ),
         }
     }
 }

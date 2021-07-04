@@ -1,0 +1,182 @@
+[
+    {
+        "id": 0,
+        "name": "block_attach"
+    },
+    {
+        "id": 1,
+        "name": "block_change"
+    },
+    {
+        "id": 2,
+        "name": "block_close"
+    },
+    {
+        "id": 3,
+        "name": "block_destroy"
+    },
+    {
+        "id": 4,
+        "name": "block_detach"
+    },
+    {
+        "id": 5,
+        "name": "block_open"
+    },
+    {
+        "id": 6,
+        "name": "block_place"
+    },
+    {
+        "id": 7,
+        "name": "block_press"
+    },
+    {
+        "id": 8,
+        "name": "block_switch"
+    },
+    {
+        "id": 9,
+        "name": "block_unpress"
+    },
+    {
+        "id": 10,
+        "name": "block_unswitch"
+    },
+    {
+        "id": 11,
+        "name": "container_close"
+    },
+    {
+        "id": 12,
+        "name": "container_open"
+    },
+    {
+        "id": 13,
+        "name": "dispense_fail"
+    },
+    {
+        "id": 14,
+        "name": "drinking_finish"
+    },
+    {
+        "id": 15,
+        "name": "eat"
+    },
+    {
+        "id": 16,
+        "name": "elytra_free_fall"
+    },
+    {
+        "id": 17,
+        "name": "entity_damaged"
+    },
+    {
+        "id": 18,
+        "name": "entity_killed"
+    },
+    {
+        "id": 19,
+        "name": "entity_place"
+    },
+    {
+        "id": 20,
+        "name": "equip"
+    },
+    {
+        "id": 21,
+        "name": "explode"
+    },
+    {
+        "id": 22,
+        "name": "fishing_rod_cast"
+    },
+    {
+        "id": 23,
+        "name": "fishing_rod_reel_in"
+    },
+    {
+        "id": 24,
+        "name": "flap"
+    },
+    {
+        "id": 25,
+        "name": "fluid_pickup"
+    },
+    {
+        "id": 26,
+        "name": "fluid_place"
+    },
+    {
+        "id": 27,
+        "name": "hit_ground"
+    },
+    {
+        "id": 28,
+        "name": "mob_interact"
+    },
+    {
+        "id": 29,
+        "name": "lightning_strike"
+    },
+    {
+        "id": 30,
+        "name": "minecart_moving"
+    },
+    {
+        "id": 31,
+        "name": "piston_contract"
+    },
+    {
+        "id": 32,
+        "name": "piston_extend"
+    },
+    {
+        "id": 33,
+        "name": "prime_fuse"
+    },
+    {
+        "id": 34,
+        "name": "projectile_land"
+    },
+    {
+        "id": 35,
+        "name": "projectile_shoot"
+    },
+    {
+        "id": 36,
+        "name": "ravager_roar"
+    },
+    {
+        "id": 37,
+        "name": "ring_bell"
+    },
+    {
+        "id": 38,
+        "name": "shear"
+    },
+    {
+        "id": 39,
+        "name": "shulker_close"
+    },
+    {
+        "id": 40,
+        "name": "shulker_open"
+    },
+    {
+        "id": 41,
+        "name": "splash"
+    },
+    {
+        "id": 42,
+        "name": "step"
+    },
+    {
+        "id": 43,
+        "name": "swim"
+    },
+    {
+        "id": 44,
+        "name": "wolf_shaking"
+    }
+]

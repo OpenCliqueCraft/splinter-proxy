@@ -11,11 +11,11 @@ use craftio_rs::{
 use mcproto_rs::{
     protocol::State,
     types::Chat,
-    v1_16_3::{
-        Packet753,
+    v1_17_0::{
+        Packet755,
         PlayDisconnectSpec,
         PlayServerKeepAliveSpec,
-        RawPacket753,
+        RawPacket755,
         StatusPongSpec,
         StatusRequestSpec,
         StatusResponseSpec,
@@ -23,7 +23,7 @@ use mcproto_rs::{
 };
 
 use super::{
-    version::V753,
+    version::V755,
     AsyncCraftConnection,
     AsyncCraftReader,
     AsyncCraftWriter,
@@ -60,20 +60,20 @@ pub async fn handle_client_status(
     proxy: Arc<SplinterProxy>,
 ) -> anyhow::Result<()> {
     conn.set_state(State::Status);
-    conn.write_packet_async(Packet753::StatusResponse(StatusResponseSpec {
+    conn.write_packet_async(Packet755::StatusResponse(StatusResponseSpec {
         response: proxy.config.server_status(&*proxy),
     }))
     .await?;
     loop {
-        match conn.read_packet_async::<RawPacket753>().await? {
-            Some(Packet753::StatusPing(body)) => {
-                conn.write_packet_async(Packet753::StatusPong(StatusPongSpec {
+        match conn.read_packet_async::<RawPacket755>().await? {
+            Some(Packet755::StatusPing(body)) => {
+                conn.write_packet_async(Packet755::StatusPong(StatusPongSpec {
                     payload: body.payload,
                 }))
                 .await?;
                 break;
             }
-            Some(Packet753::StatusRequest(StatusRequestSpec)) => {
+            Some(Packet755::StatusRequest(StatusRequestSpec)) => {
                 // do nothing.
                 // notchian client does not like it when we respond
                 // with a server status to this message
@@ -91,7 +91,7 @@ type RelayPassFn = Box<
         + Fn(
             &Arc<SplinterProxy>,
             &PacketSender,
-            &mut LazyDeserializedPacket<V753>,
+            &mut LazyDeserializedPacket<V755>,
             &mut SplinterMapping,
             &mut PacketDestination,
         ),
@@ -108,7 +108,7 @@ pub async fn handle_server_packet<'a>(
     mut destination: PacketDestination,
     sender: &PacketSender<'a>,
 ) -> anyhow::Result<Option<()>> {
-    let packet_opt = match reader.read_raw_packet_async::<RawPacket753>().await {
+    let packet_opt = match reader.read_raw_packet_async::<RawPacket755>().await {
         Ok(packet) => packet,
         Err(e) => {
             bail!("Failed to read packet {}: {}", server.id, e);
@@ -117,7 +117,7 @@ pub async fn handle_server_packet<'a>(
     match packet_opt {
         Some(raw_packet) => {
             let mut lazy_packet =
-                LazyDeserializedPacket::<version::V753>::from_raw_packet(raw_packet);
+                LazyDeserializedPacket::<version::V755>::from_raw_packet(raw_packet);
             let map = &mut *proxy.mapping.lock().await;
             for pass in inventory::iter::<RelayPass> {
                 (pass.0)(&proxy, &sender, &mut lazy_packet, map, &mut destination);
@@ -138,7 +138,7 @@ pub async fn handle_client_packet<'a>(
     mut destination: PacketDestination,
     sender: &PacketSender<'a>,
 ) -> anyhow::Result<Option<()>> {
-    let packet_opt = match reader.read_raw_packet_async::<RawPacket753>().await {
+    let packet_opt = match reader.read_raw_packet_async::<RawPacket755>().await {
         Ok(packet) => packet,
         Err(e) => {
             bail!("Failed to read packet from {}: {}", client.name, e);
@@ -147,7 +147,7 @@ pub async fn handle_client_packet<'a>(
     match packet_opt {
         Some(raw_packet) => {
             let mut lazy_packet =
-                LazyDeserializedPacket::<version::V753>::from_raw_packet(raw_packet);
+                LazyDeserializedPacket::<version::V755>::from_raw_packet(raw_packet);
             let map = &mut *proxy.mapping.lock().await;
             for pass in inventory::iter::<RelayPass> {
                 (pass.0)(&proxy, &sender, &mut lazy_packet, map, &mut destination);
@@ -168,7 +168,7 @@ pub async fn handle_client_packet<'a>(
 async fn send_packet(
     client: &Arc<SplinterClient>,
     destination: &PacketDestination,
-    lazy_packet: LazyDeserializedPacket<'_, V753>,
+    lazy_packet: LazyDeserializedPacket<'_, V755>,
 ) -> anyhow::Result<()> {
     match destination {
         PacketDestination::Client => {
@@ -209,7 +209,7 @@ async fn send_packet(
 
 async fn write_packet(
     writer: &mut AsyncCraftWriter,
-    lazy_packet: LazyDeserializedPacket<'_, V753>,
+    lazy_packet: LazyDeserializedPacket<'_, V755>,
 ) -> anyhow::Result<()> {
     if lazy_packet.is_deserialized() {
         writer
@@ -224,9 +224,9 @@ async fn write_packet(
 }
 
 impl SplinterClient {
-    pub async fn write_packet_v753(
+    pub async fn write_packet_v755(
         &self,
-        packet: LazyDeserializedPacket<'_, V753>,
+        packet: LazyDeserializedPacket<'_, V755>,
     ) -> anyhow::Result<()> {
         if packet.is_deserialized() {
             self.writer
@@ -248,17 +248,17 @@ impl SplinterClient {
                 .map_err(|e| anyhow!(e))
         }
     }
-    pub async fn send_kick_v753(&self, reason: ClientKickReason) -> anyhow::Result<()> {
-        self.write_packet_v753(LazyDeserializedPacket::<V753>::from_packet(
-            Packet753::PlayDisconnect(PlayDisconnectSpec {
+    pub async fn send_kick_v755(&self, reason: ClientKickReason) -> anyhow::Result<()> {
+        self.write_packet_v755(LazyDeserializedPacket::<V755>::from_packet(
+            Packet755::PlayDisconnect(PlayDisconnectSpec {
                 reason: Chat::from_text(&reason.text()),
             }),
         ))
         .await
     }
-    pub async fn send_keep_alive_v753(&self, time: u128) -> anyhow::Result<()> {
-        self.write_packet_v753(LazyDeserializedPacket::<V753>::from_packet(
-            Packet753::PlayServerKeepAlive(PlayServerKeepAliveSpec {
+    pub async fn send_keep_alive_v755(&self, time: u128) -> anyhow::Result<()> {
+        self.write_packet_v755(LazyDeserializedPacket::<V755>::from_packet(
+            Packet755::PlayServerKeepAlive(PlayServerKeepAliveSpec {
                 id: time as i64,
             }),
         ))
