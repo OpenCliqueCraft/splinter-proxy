@@ -31,7 +31,7 @@ async fn keep_alive_loop(proxy: Arc<SplinterProxy>) -> anyhow::Result<()> {
             let players = proxy
                 .players
                 .read()
-                .unwrap()
+                .await
                 .iter()
                 .map(|(_, client)| Arc::clone(client))
                 .collect::<Vec<_>>();

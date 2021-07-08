@@ -5,15 +5,16 @@ use std::{
         TcpListener,
     },
     str::FromStr,
-    sync::{
-        Arc,
-        RwLock,
-    },
+    sync::Arc,
     time::Duration,
 };
 
+use arc_swap::ArcSwap;
 use smol::{
-    lock::Mutex,
+    lock::{
+        Mutex,
+        RwLock,
+    },
     Async,
     Timer,
 };
@@ -34,7 +35,7 @@ use crate::{
 
 pub struct SplinterProxy {
     pub protocol: ProtocolVersion,
-    pub alive: RwLock<bool>,
+    pub alive: ArcSwap<bool>,
     pub config: SplinterConfig,
     pub players: RwLock<HashMap<String, Arc<SplinterClient>>>,
     pub servers: RwLock<HashMap<u64, Arc<SplinterServer>>>,
@@ -59,7 +60,7 @@ impl SplinterProxy {
         };
         Ok(Self {
             protocol: ProtocolVersion::from_number(config.protocol)?,
-            alive: RwLock::new(true),
+            alive: ArcSwap::new(Arc::new(true)),
             config,
             players: RwLock::new(HashMap::new()),
             servers,
@@ -68,7 +69,7 @@ impl SplinterProxy {
         })
     }
     pub fn is_alive(&self) -> bool {
-        *self.alive.read().unwrap()
+        **self.alive.load()
     }
     pub async fn kick_client(
         &self,
@@ -76,16 +77,11 @@ impl SplinterProxy {
         reason: ClientKickReason,
     ) -> anyhow::Result<()> {
         let name_string = client_name.as_ref().to_owned();
-        let cl_opt = self
-            .players
-            .read()
-            .unwrap()
-            .get(&name_string)
-            .map(Arc::clone);
+        let cl_opt = self.players.read().await.get(&name_string).map(Arc::clone);
         if let Some(client) = cl_opt {
             client.send_kick(reason).await?;
             client.set_alive(false).await;
-            self.players.write().unwrap().remove(&name_string);
+            self.players.write().await.remove(&name_string);
         } else {
             bail!("Failed to find client by the name \"{}\"", name_string);
         }

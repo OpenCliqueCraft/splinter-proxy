@@ -21,6 +21,7 @@ use craftio_rs::{
 use mcproto_rs::{
     protocol::{
         HasPacketKind,
+        PacketDirection,
         RawPacket,
         State,
     },
@@ -32,21 +33,20 @@ use mcproto_rs::{
         RawPacket753,
     },
 };
-use smol::{
-    lock::Mutex,
-    Async,
-};
+use smol::Async;
 
 use crate::{
+    chat::ToChat,
     client::{
         ClientVersion,
         SplinterClient,
     },
-    proxy::SplinterProxy,
-    server::{
-        SplinterServer,
-        SplinterServerConnection,
+    commands::CommandSender,
+    proxy::{
+        ClientKickReason,
+        SplinterProxy,
     },
+    server::SplinterServerConnection,
 };
 
 // The rule here is, you should not have to import anything protocol specific
@@ -54,9 +54,11 @@ use crate::{
 // mcproto_rs::v1_16_3 stays within v753.rs; nothing should have to import anything
 // directly from that specific protocol
 
+mod login;
 pub mod v753;
 pub mod v755;
 pub mod version;
+pub use login::*;
 
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub enum ProtocolVersion {
@@ -95,10 +97,6 @@ pub struct TagList(HashMap<String, Vec<String>>);
 /// Contains tags for the tag lists of blocks, items, entities, and fluids.
 #[derive(Clone, Debug)]
 pub struct Tags {
-    // pub blocks: TagList,
-    // pub items: TagList,
-    // pub fluids: TagList,
-    // pub entities: TagList,
     pub tags: HashMap<String, TagList>,
 }
 
@@ -155,11 +153,8 @@ pub async fn handle_handshake(
                     }
                 },
                 HandshakeNextState::Login => match ProtocolVersion::from_number(*body.version) {
-                    Ok(ProtocolVersion::V753 | ProtocolVersion::V754) => {
-                        v753::handle_client_login(conn, addr, proxy).await?;
-                    }
-                    Ok(ProtocolVersion::V755) => {
-                        v755::handle_client_login(conn, addr, proxy).await?
+                    Ok(ver) => {
+                        handle_client_login(conn, ver.into(), addr, proxy).await?;
                     }
                     Err(_e) => {
                         // invalid version, send login disconnect
@@ -183,54 +178,28 @@ pub async fn handle_handshake(
     Ok(())
 }
 
-pub enum PacketSender<'a> {
-    Server(&'a Arc<SplinterServer>, &'a Arc<SplinterClient>),
-    Proxy(&'a Arc<SplinterClient>),
-}
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub enum PacketDestination {
-    Server(u64),
-    Client, // afaik no need to specify which at the moment
-    None,
-}
-
 impl SplinterClient {
     pub async fn handle_server_relay(
         self: &Arc<Self>,
         proxy: Arc<SplinterProxy>,
-        server_conn: Arc<Mutex<SplinterServerConnection>>,
+        server_conn: Arc<SplinterServerConnection>,
         mut server_reader: AsyncCraftReader,
     ) -> anyhow::Result<()> {
-        let server = Arc::clone(&server_conn.lock().await.server);
-        let sender = PacketSender::Server(&server, self);
+        let server = Arc::clone(&server_conn.server);
+        let sender = PacketDirection::ClientBound;
         loop {
             // server->proxy->client
-            if !**self.alive.load() || !server_conn.lock().await.alive {
+            if !**self.alive.load() || !**server_conn.alive.load() {
                 break;
             }
-            let destination = PacketDestination::Client;
             match match self.version {
                 ClientVersion::V753 => {
-                    v753::handle_server_packet(
-                        &proxy,
-                        self,
-                        &mut server_reader,
-                        &server,
-                        destination,
-                        &sender,
-                    )
-                    .await
+                    v753::handle_server_packet(&proxy, self, &mut server_reader, &server, &sender)
+                        .await
                 }
                 ClientVersion::V755 => {
-                    v755::handle_server_packet(
-                        &proxy,
-                        self,
-                        &mut server_reader,
-                        &server,
-                        destination,
-                        &sender,
-                    )
-                    .await
+                    v755::handle_server_packet(&proxy, self, &mut server_reader, &server, &sender)
+                        .await
                 }
             } {
                 Ok(Some(())) => {}
@@ -240,7 +209,7 @@ impl SplinterClient {
                 }
             }
         }
-        server_conn.lock().await.alive = false;
+        server_conn.alive.store(Arc::new(false));
         debug!(
             "Server connection between {} and server id {} closed",
             self.name, server.id
@@ -252,34 +221,18 @@ impl SplinterClient {
         proxy: Arc<SplinterProxy>,
         mut client_reader: AsyncCraftReader,
     ) -> anyhow::Result<()> {
-        let client_arc_clone = Arc::clone(self);
-        let sender = PacketSender::Proxy(&client_arc_clone);
+        let sender = PacketDirection::ServerBound;
         loop {
             // client->proxy->server
             if !**self.alive.load() {
                 break;
             }
-            let destination = PacketDestination::Server(**self.active_server_id.load());
             match match self.version {
                 ClientVersion::V753 => {
-                    v753::handle_client_packet(
-                        &proxy,
-                        self,
-                        &mut client_reader,
-                        destination,
-                        &sender,
-                    )
-                    .await
+                    v753::handle_client_packet(&proxy, self, &mut client_reader, &sender).await
                 }
                 ClientVersion::V755 => {
-                    v755::handle_client_packet(
-                        &proxy,
-                        self,
-                        &mut client_reader,
-                        destination,
-                        &sender,
-                    )
-                    .await
+                    v755::handle_client_packet(&proxy, self, &mut client_reader, &sender).await
                 }
             } {
                 Ok(Some(())) => {}
@@ -292,10 +245,38 @@ impl SplinterClient {
                 }
             }
         }
-        proxy.players.write().unwrap().remove(&self.name);
+        proxy.players.write().await.remove(&self.name);
         self.alive.store(Arc::new(false));
         info!("Client \"{}\" connection closed", self.name);
         Ok(())
+    }
+    pub async fn send_message(
+        &self,
+        chat: impl ToChat,
+        sender: &CommandSender,
+    ) -> anyhow::Result<()> {
+        match self.version {
+            ClientVersion::V753 => self.send_message_v753(chat, sender).await,
+            ClientVersion::V755 => self.send_message_v755(chat, sender).await,
+        }
+    }
+    pub async fn send_kick(&self, reason: ClientKickReason) -> anyhow::Result<()> {
+        match self.version {
+            ClientVersion::V753 => self.send_kick_v753(reason).await,
+            ClientVersion::V755 => self.send_kick_v755(reason).await,
+        }
+    }
+    pub async fn send_keep_alive(&self, time: u128) -> anyhow::Result<()> {
+        match self.version {
+            ClientVersion::V753 => self.send_keep_alive_v753(time).await,
+            ClientVersion::V755 => self.send_keep_alive_v755(time).await,
+        }
+    }
+    pub async fn relay_message(&self, msg: &str) -> anyhow::Result<()> {
+        match self.version {
+            ClientVersion::V753 => self.relay_message_v753(msg).await,
+            ClientVersion::V755 => self.relay_message_v755(msg).await,
+        }
     }
 }
 

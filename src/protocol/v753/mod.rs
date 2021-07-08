@@ -3,13 +3,17 @@ use std::{
     sync::Arc,
 };
 
+use anyhow::Context;
 use craftio_rs::{
     CraftAsyncReader,
     CraftAsyncWriter,
     CraftIo,
 };
 use mcproto_rs::{
-    protocol::State,
+    protocol::{
+        PacketDirection,
+        State,
+    },
     types::Chat,
     v1_16_3::{
         Packet753,
@@ -27,19 +31,19 @@ use super::{
     AsyncCraftConnection,
     AsyncCraftReader,
     AsyncCraftWriter,
-    PacketDestination,
-    PacketSender,
 };
 use crate::{
     client::SplinterClient,
     events::LazyDeserializedPacket,
-    mapping::SplinterMapping,
     protocol::version,
     proxy::{
         ClientKickReason,
         SplinterProxy,
     },
-    server::SplinterServer,
+    server::{
+        SplinterServer,
+        SplinterServerConnection,
+    },
 };
 
 mod chat;
@@ -90,40 +94,47 @@ type RelayPassFn = Box<
         + Sync
         + Fn(
             &Arc<SplinterProxy>,
-            &PacketSender,
+            &Arc<SplinterServerConnection>,
+            &Arc<SplinterClient>,
+            &PacketDirection,
             &mut LazyDeserializedPacket<V753>,
-            &mut SplinterMapping,
-            &mut PacketDestination,
+            &mut Option<PacketDirection>,
         ),
 >;
 pub struct RelayPass(pub RelayPassFn);
 
 inventory::collect!(RelayPass);
 
-pub async fn handle_server_packet<'a>(
+pub async fn handle_server_packet(
     proxy: &Arc<SplinterProxy>,
     client: &Arc<SplinterClient>,
     reader: &mut AsyncCraftReader,
     server: &Arc<SplinterServer>,
-    mut destination: PacketDestination,
-    sender: &PacketSender<'a>,
+    sender: &PacketDirection,
 ) -> anyhow::Result<Option<()>> {
-    let packet_opt = match reader.read_raw_packet_async::<RawPacket753>().await {
-        Ok(packet) => packet,
-        Err(e) => {
-            bail!("Failed to read packet {}: {}", server.id, e);
-        }
-    };
+    let packet_opt = reader
+        .read_raw_packet_async::<RawPacket753>()
+        .await
+        .with_context(|| format!("Failed to read packet {}: ", server.id))?;
     match packet_opt {
         Some(raw_packet) => {
             let mut lazy_packet =
                 LazyDeserializedPacket::<version::V753>::from_raw_packet(raw_packet);
-            let map = &mut *proxy.mapping.lock().await;
+            let mut destination = Some(*sender);
             for pass in inventory::iter::<RelayPass> {
-                (pass.0)(&proxy, &sender, &mut lazy_packet, map, &mut destination);
+                (pass.0)(
+                    proxy,
+                    &*client.active_server.load(),
+                    client,
+                    sender,
+                    &mut lazy_packet,
+                    &mut destination,
+                );
             }
-            if let Err(e) = send_packet(&client, &destination, lazy_packet).await {
-                bail!("Sending packet {} failure: {}", server.id, e);
+            if let Some(dir) = destination {
+                send_packet(client, &dir, lazy_packet)
+                    .await
+                    .with_context(|| format!("Sending packet {} failure", server.id))?;
             }
             Ok(Some(()))
         }
@@ -135,29 +146,33 @@ pub async fn handle_client_packet<'a>(
     proxy: &Arc<SplinterProxy>,
     client: &Arc<SplinterClient>,
     reader: &mut AsyncCraftReader,
-    mut destination: PacketDestination,
-    sender: &PacketSender<'a>,
+    sender: &PacketDirection,
 ) -> anyhow::Result<Option<()>> {
-    let packet_opt = match reader.read_raw_packet_async::<RawPacket753>().await {
-        Ok(packet) => packet,
-        Err(e) => {
-            bail!("Failed to read packet from {}: {}", client.name, e);
-        }
-    };
+    let packet_opt = reader
+        .read_raw_packet_async::<RawPacket753>()
+        .await
+        .with_context(|| format!("Failed to read packet from {}", client.name))?;
     match packet_opt {
         Some(raw_packet) => {
             let mut lazy_packet =
                 LazyDeserializedPacket::<version::V753>::from_raw_packet(raw_packet);
-            let map = &mut *proxy.mapping.lock().await;
+            let mut destination = Some(*sender);
             for pass in inventory::iter::<RelayPass> {
-                (pass.0)(&proxy, &sender, &mut lazy_packet, map, &mut destination);
-            }
-            if let Err(e) = send_packet(&client, &destination, lazy_packet).await {
-                bail!(
-                    "Sending packet from client \"{}\" failure: {}",
-                    &client.name,
-                    e
+                (pass.0)(
+                    proxy,
+                    &*client.active_server.load(),
+                    client,
+                    sender,
+                    &mut lazy_packet,
+                    &mut destination,
                 );
+            }
+            if let Some(dir) = destination {
+                send_packet(client, &dir, lazy_packet)
+                    .await
+                    .with_context(|| {
+                        format!("Sending packet from client \"{}\" failure", &client.name)
+                    })?;
             }
             Ok(Some(()))
         }
@@ -167,42 +182,30 @@ pub async fn handle_client_packet<'a>(
 
 async fn send_packet(
     client: &Arc<SplinterClient>,
-    destination: &PacketDestination,
+    destination: &PacketDirection,
     lazy_packet: LazyDeserializedPacket<'_, V753>,
 ) -> anyhow::Result<()> {
     match destination {
-        PacketDestination::Client => {
-            let writer = &mut *client.writer.lock().await;
-            if let Err(e) = write_packet(writer, lazy_packet).await {
-                bail!(
-                    "Failed to write packet to client \"{}\": {}",
-                    &client.name,
-                    e
-                );
-            }
+        PacketDirection::ClientBound => {
+            write_packet(&mut *client.writer.lock().await, lazy_packet)
+                .await
+                .with_context(|| {
+                    format!("Failed to write packet to client \"{}\"", &client.name,)
+                })?;
         }
-        PacketDestination::Server(server_id) => {
-            let servers = client.servers.lock().await;
-            let mut server_conn = servers
-                .get(server_id)
-                .ok_or_else(|| {
-                    anyhow!(
-                        "Tried to redirect packet to unknown server id \"{}\"",
-                        server_id
-                    )
-                })?
-                .lock()
-                .await;
-            let writer = &mut server_conn.writer;
-            if let Err(e) = write_packet(writer, lazy_packet).await {
-                bail!(
-                    "Failed to write packet to server \"{}\": {}",
-                    server_conn.server.id,
-                    e
-                );
-            }
+        PacketDirection::ServerBound => {
+            write_packet(
+                &mut *client.active_server.load().writer.lock().await,
+                lazy_packet,
+            )
+            .await
+            .with_context(|| {
+                format!(
+                    "Failed to write packet to server \"{}\"",
+                    client.server_id()
+                )
+            })?;
         }
-        PacketDestination::None => return Ok(()),
     };
     Ok(())
 }
@@ -228,25 +231,14 @@ impl SplinterClient {
         &self,
         packet: LazyDeserializedPacket<'_, V753>,
     ) -> anyhow::Result<()> {
+        let mut writer = self.writer.lock().await;
         if packet.is_deserialized() {
-            self.writer
-                .lock()
-                .await
-                .write_packet_async(
-                    packet
-                        .into_packet()
-                        .map_err(|e| anyhow!(format!("{}", e)))?,
-                )
-                .await
-                .map_err(|e| anyhow!(format!("{}", e)))
+            writer.write_packet_async(packet.into_packet()?)
         } else {
-            self.writer
-                .lock()
-                .await
-                .write_raw_packet_async(packet.into_raw_packet().unwrap())
-                .await
-                .map_err(|e| anyhow!(e))
+            writer.write_raw_packet_async(packet.into_raw_packet().unwrap())
         }
+        .await?;
+        Ok(())
     }
     pub async fn send_kick_v753(&self, reason: ClientKickReason) -> anyhow::Result<()> {
         self.write_packet_v753(LazyDeserializedPacket::<V753>::from_packet(

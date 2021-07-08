@@ -14,7 +14,7 @@ inventory::submit! {
     SplinterCommand {
         name: "stop",
         action: Box::new(|proxy: &Arc<SplinterProxy>, _cmd: &str, _args: &[&str], _sender: &CommandSender| {
-            let names = proxy.players.read().unwrap().iter().map(|(name, _)| name.to_owned()).collect::<Vec<String>>();
+            let names = smol::block_on(proxy.players.read()).iter().map(|(name, _)| name.to_owned()).collect::<Vec<String>>();
             if !names.is_empty() {
                 info!("Disconnecting clients");
                 for name in names {
@@ -24,7 +24,7 @@ inventory::submit! {
                 }
             }
             info!("Shutting down");
-            *proxy.alive.write().unwrap() = false;
+            proxy.alive.store(Arc::new(false));
             Ok(())
         }),
     }

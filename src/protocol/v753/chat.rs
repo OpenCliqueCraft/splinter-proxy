@@ -16,23 +16,20 @@ use crate::{
     client::SplinterClient,
     commands::CommandSender,
     events::LazyDeserializedPacket,
-    protocol::{
-        version::V753,
-        PacketDestination,
-    },
+    protocol::version::V753,
 };
 
 inventory::submit! {
-    RelayPass(Box::new(|proxy, sender, lazy_packet, _map, destination| {
+    RelayPass(Box::new(|proxy, _connection, client, sender, lazy_packet, destination| {
         if lazy_packet.kind() == Packet753Kind::PlayClientChatMessage {
             match lazy_packet.packet() {
-                Ok(Packet753::PlayClientChatMessage(body)) => smol::block_on(receive_chat_message(proxy, sender, &body.message)),
+                Ok(Packet753::PlayClientChatMessage(body)) => smol::block_on(receive_chat_message(proxy, client, sender, &body.message)),
                 Ok(_) => unreachable!(),
                 Err(e) => {
                     error!("Failed to deserialize chat message: {}", e);
                 }
             }
-            *destination = PacketDestination::None;
+            *destination = None;
         }
     }))
 }
@@ -55,26 +52,18 @@ impl SplinterClient {
         ))
         .await
     }
-    pub async fn relay_message_v753(&self, msg: &str, server_id: u64) -> anyhow::Result<()> {
-        let servers = self.servers.lock().await;
-        let mut server_conn = servers
-            .get(&server_id)
-            .ok_or_else(|| {
-                anyhow!(
-                    "Failed to get server connection for server id \"{}\"",
-                    server_id
-                )
-            })?
-            .lock()
-            .await;
-        server_conn
+    pub async fn relay_message_v753(&self, msg: &str) -> anyhow::Result<()> {
+        self.active_server
+            .load()
             .writer
+            .lock()
+            .await
             .write_packet_async(Packet753::PlayClientChatMessage(
                 PlayClientChatMessageSpec {
                     message: msg.to_owned(),
                 },
             ))
             .await
-            .map_err(|e| anyhow!("{}", e))
+            .map_err(|e| e.into())
     }
 }

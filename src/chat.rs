@@ -1,15 +1,18 @@
 use std::sync::Arc;
 
-use mcproto_rs::types::{
-    BaseComponent,
-    Chat,
-    ColorCode,
-    TextComponent,
+use mcproto_rs::{
+    protocol::PacketDirection,
+    types::{
+        BaseComponent,
+        Chat,
+        ColorCode,
+        TextComponent,
+    },
 };
 
 use crate::{
+    client::SplinterClient,
     commands::CommandSender,
-    protocol::PacketSender,
     proxy::SplinterProxy,
 };
 
@@ -71,25 +74,26 @@ pub fn format_chat_message(sender: &CommandSender, message: impl ToChat + ToStri
 
 pub async fn receive_chat_message(
     proxy: &Arc<SplinterProxy>,
-    sender: &PacketSender<'_>,
+    client: &Arc<SplinterClient>,
+    sender: &PacketDirection,
     msg: &str,
 ) {
     if msg.is_empty() {
         return;
     }
-    let client = match sender {
-        PacketSender::Proxy(client) => client,
-        PacketSender::Server(_, _) => return,
-    };
+    if *sender == PacketDirection::ClientBound {
+        return;
+    }
     let cmd_sender = CommandSender::Player(Arc::clone(client));
     let msg_string = format_chat_message_string(&cmd_sender, msg);
     info!("{}", msg_string);
     if let Some('/') = msg.chars().next() {
-        let server_id = client.server_id();
-        if let Err(e) = client.relay_message(msg, server_id).await {
+        if let Err(e) = client.relay_message(msg).await {
             error!(
                 "Failed to relay chat message from \"{}\" to server \"{}\": {}",
-                &client.name, server_id, e
+                &client.name,
+                client.server_id(),
+                e
             );
         }
     } else {
@@ -103,7 +107,7 @@ pub async fn broadcast_message(
     sender: &CommandSender,
     msg: impl ToChat + Clone,
 ) {
-    for (_, target) in proxy.players.read().unwrap().iter() {
+    for (_, target) in proxy.players.read().await.iter() {
         if let Err(e) = target.send_message(msg.clone(), sender).await {
             error!(
                 "Failed to send broadcast message to {}: {}",

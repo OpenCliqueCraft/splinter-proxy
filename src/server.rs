@@ -6,15 +6,23 @@ use std::{
     sync::Arc,
 };
 
+use arc_swap::ArcSwap;
 use async_compat::CompatExt;
 use async_dup::Arc as AsyncArc;
 use craftio_rs::CraftConnection;
 use mcproto_rs::protocol::PacketDirection;
-use smol::Async;
+use smol::{
+    lock::Mutex,
+    Async,
+};
 
-use crate::protocol::{
-    AsyncCraftConnection,
-    AsyncCraftWriter,
+use crate::{
+    client::SplinterClient,
+    mapping::SplinterMapping,
+    protocol::{
+        AsyncCraftConnection,
+        AsyncCraftWriter,
+    },
 };
 
 #[derive(Clone)]
@@ -35,7 +43,14 @@ impl SplinterServer {
 }
 
 pub struct SplinterServerConnection {
-    pub writer: AsyncCraftWriter,
+    pub writer: Mutex<AsyncCraftWriter>,
     pub server: Arc<SplinterServer>,
-    pub alive: bool,
+    pub alive: ArcSwap<bool>,
+    pub map: Mutex<SplinterMapping>,
+}
+
+impl SplinterServerConnection {
+    pub fn _is_dummy(&self, client: &SplinterClient) -> bool {
+        client.server_id() != self.server.id
+    }
 }

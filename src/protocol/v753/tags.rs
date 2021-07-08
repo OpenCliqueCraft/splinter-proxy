@@ -102,20 +102,11 @@ impl From<&PlayTagsSpec> for Tags {
 impl From<&Tags> for PlayTagsSpec {
     fn from(tags: &Tags) -> PlayTagsSpec {
         PlayTagsSpec {
-            block_tags: tags_to_proto_tags(
-                &tags.tags.get("minecraft:block".into()).unwrap(),
-                &BLOCK_MAP,
-            ),
-            item_tags: tags_to_proto_tags(
-                &tags.tags.get("minecraft:item".into()).unwrap(),
-                &ITEM_MAP,
-            ),
-            fluid_tags: tags_to_proto_tags(
-                &tags.tags.get("minecraft:fluid".into()).unwrap(),
-                &FLUID_MAP,
-            ),
+            block_tags: tags_to_proto_tags(tags.tags.get("minecraft:block").unwrap(), &BLOCK_MAP),
+            item_tags: tags_to_proto_tags(tags.tags.get("minecraft:item").unwrap(), &ITEM_MAP),
+            fluid_tags: tags_to_proto_tags(tags.tags.get("minecraft:fluid").unwrap(), &FLUID_MAP),
             entity_tags: tags_to_proto_tags(
-                &tags.tags.get("minecraft:entity_type".into()).unwrap(),
+                tags.tags.get("minecraft:entity_type").unwrap(),
                 &ENTITY_MAP,
             ),
         }

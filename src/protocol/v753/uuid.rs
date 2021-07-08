@@ -1,4 +1,5 @@
 use mcproto_rs::{
+    protocol::PacketDirection,
     uuid::UUID4,
     v1_16_3::{
         EntityMetadataFieldData,
@@ -10,19 +11,18 @@ use mcproto_rs::{
 
 use super::RelayPass;
 use crate::{
+    client::SplinterClient,
     mapping::SplinterMapping,
-    protocol::{
-        PacketDestination,
-        PacketSender,
-    },
 };
 
 inventory::submit! {
-    RelayPass(Box::new(|_proxy, sender, lazy_packet, map, destination| {
+    RelayPass(Box::new(|_proxy, connection, client, sender, lazy_packet, destination| {
         if has_uuids(lazy_packet.kind()) {
             if let Ok(ref mut packet) = lazy_packet.packet() {
-                if let Some(server_id) = map_uuid(map, packet, sender) {
-                    *destination = PacketDestination::Server(server_id);
+                let mut map = smol::block_on(connection.map.lock());
+                if let Some(_server_id) = map_uuid(&*client, &mut *map, packet, sender) {
+                    // *destination = PacketDestination::Server(server_id);
+                    *destination = None; // do something here?
                 }
             }
         }
@@ -46,12 +46,14 @@ pub fn has_uuids(kind: Packet753Kind) -> bool {
 }
 
 pub fn map_uuid(
+    client: &SplinterClient,
     map: &mut SplinterMapping,
     packet: &mut Packet753,
-    sender: &PacketSender,
+    sender: &PacketDirection,
 ) -> Option<u64> {
     match sender {
-        PacketSender::Server(server, _client) => {
+        PacketDirection::ClientBound => {
+            let server = &client.active_server.load().server;
             let uuid: Option<&mut UUID4> = match packet {
                 Packet753::PlaySpawnEntity(body) => Some(&mut body.object_uuid),
                 Packet753::PlaySpawnLivingEntity(body) => Some(&mut body.entity_uuid),
@@ -139,7 +141,7 @@ pub fn map_uuid(
                 *uuid = map.map_uuid_server_to_proxy(server.id, *uuid);
             }
         }
-        PacketSender::Proxy(_) => {
+        PacketDirection::ServerBound => {
             if let Packet753::PlaySpectate(body) = packet {
                 if let Ok((server_id, server_uuid)) = map.map_uuid_proxy_to_server(body.target) {
                     body.target = server_uuid;

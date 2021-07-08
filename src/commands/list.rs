@@ -11,7 +11,7 @@ inventory::submit! {
     SplinterCommand {
         name: "list",
         action: Box::new(|proxy: &Arc<SplinterProxy>, _cmd: &str, _args: &[&str], sender: &CommandSender| {
-            let players = proxy.players.read().unwrap();
+            let players = smol::block_on(proxy.players.read());
             let msg = format!(
                 "{}/{} players: {}",
                 players.len(),
@@ -25,7 +25,7 @@ inventory::submit! {
                     .reduce(|a, b| format!("{}, {}", a, b))
                     .unwrap_or_else(String::new),
             );
-            if let Err(e) = smol::block_on(sender.respond(msg)) {
+            if let Err(e) = sender.respond_sync(msg) {
                 error!(
                     "Failed to send player list response to {}: {}",
                     sender.name(),

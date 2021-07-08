@@ -8,7 +8,6 @@ use blocking::{
     Unblock,
 };
 use mcproto_rs::uuid::UUID4;
-use smol;
 
 use crate::{
     chat::ToChat,
@@ -20,6 +19,7 @@ use crate::{
 mod kick;
 mod list;
 mod stop;
+mod switch;
 
 pub enum CommandSender {
     Player(Arc<SplinterClient>),
@@ -35,6 +35,9 @@ impl CommandSender {
                 Ok(())
             }
         }
+    }
+    pub fn respond_sync(&self, msg: impl ToChat + ToString) -> anyhow::Result<()> {
+        smol::block_on(self.respond(msg))
     }
     pub fn name(&self) -> String {
         match self {

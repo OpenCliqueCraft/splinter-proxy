@@ -1,4 +1,5 @@
 use mcproto_rs::{
+    protocol::PacketDirection,
     types::VarInt,
     v1_16_3::{
         EntityMetadataFieldData,
@@ -9,22 +10,21 @@ use mcproto_rs::{
 
 use super::RelayPass;
 use crate::{
+    client::SplinterClient,
     mapping::{
         EntityData,
         SplinterMapping,
     },
-    protocol::{
-        PacketDestination,
-        PacketSender,
-    },
 };
 
 inventory::submit! {
-    RelayPass(Box::new(|_proxy, sender, lazy_packet, map, destination| {
+    RelayPass(Box::new(|_proxy, connection, client, sender, lazy_packet, destination| {
         if has_eids(lazy_packet.kind()) {
             if let Ok(ref mut packet) = lazy_packet.packet() {
-                if let Some(server_id) = map_eid(map, packet, sender) {
-                    *destination = PacketDestination::Server(server_id);
+                let mut map = smol::block_on(connection.map.lock());
+                if let Some(_server_id) = map_eid(&*client, &mut *map, packet, sender) {
+                    // *destination = PacketDestination::Server(server_id);
+                    *destination = None; // do something here?
                 }
             }
         }
@@ -69,12 +69,14 @@ pub fn has_eids(kind: Packet753Kind) -> bool {
     )
 }
 pub fn map_eid(
+    client: &SplinterClient,
     map: &mut SplinterMapping,
     packet: &mut Packet753,
-    sender: &PacketSender,
+    sender: &PacketDirection,
 ) -> Option<u64> {
     match sender {
-        PacketSender::Server(server, _client) => {
+        PacketDirection::ClientBound => {
+            let server = &client.active_server.load().server;
             let mut entity_data: Option<EntityData> = None;
             let (nums, varnums): (Vec<&mut i32>, Vec<&mut VarInt>) = match packet {
                 // TODO: is it possible to use something less intensive than a vec here?
@@ -292,7 +294,7 @@ pub fn map_eid(
                 map.entity_data.insert(proxy_eid, data);
             }
         }
-        PacketSender::Proxy(_) => {
+        PacketDirection::ServerBound => {
             let eid = match packet {
                 Packet753::PlayQueryEntityNbt(body) => &mut body.entity_id,
                 Packet753::PlayInteractEntity(body) => &mut body.entity_id,

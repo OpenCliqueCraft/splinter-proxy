@@ -34,6 +34,7 @@ pub struct SplinterConfig {
     pub motd: String,
     pub compression_threshold: Option<i32>,
     pub improper_version_disconnect_message: String,
+    pub brand: String,
 }
 impl Default for SplinterConfig {
     fn default() -> Self {
@@ -46,6 +47,7 @@ impl Default for SplinterConfig {
             motd: "Splinter Proxy".into(),
             compression_threshold: Some(256),
             improper_version_disconnect_message: "Your client version is not supported".into(),
+            brand: "Splinter".into(),
         }
     }
 }
@@ -71,7 +73,8 @@ impl SplinterConfig {
     }
     /// Gets the server status given the config and the proxy
     pub fn server_status(&self, proxy: &SplinterProxy) -> StatusSpec {
-        let total_players = proxy.players.read().unwrap().len();
+        let players = smol::block_on(proxy.players.read());
+        let total_players = players.len();
         StatusSpec {
             version: self.display_version.as_ref().map(|name| StatusVersionSpec {
                 name: name.clone(),
@@ -80,10 +83,7 @@ impl SplinterConfig {
             players: StatusPlayersSpec {
                 max: self.max_players.unwrap_or(total_players as i32 + 1),
                 online: total_players as i32,
-                sample: proxy
-                    .players
-                    .write()
-                    .unwrap()
+                sample: players
                     .iter()
                     .map(|(name, client)| StatusPlayerSampleSpec {
                         name: name.clone(),

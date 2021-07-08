@@ -12,6 +12,10 @@ pub fn uuid_from_bytes(bytes: &[u8]) -> UUID4 {
     UUID4::from(u128::from_be_bytes(md5_bytes))
 }
 
+pub fn uuid_from_name(name: impl AsRef<str>) -> UUID4 {
+    uuid_from_bytes(format!("OfflinePlayer:{}", name.as_ref()).as_bytes())
+}
+
 impl SplinterMapping {
     pub fn map_uuid_server_to_proxy(&mut self, server_id: u64, server_uuid: UUID4) -> UUID4 {
         if let Some(uuid) = self.uuids.get_by_right(&(server_id, server_uuid)) {
