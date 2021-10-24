@@ -28,8 +28,8 @@ use crate::{
         proto::{
             HandshakeNextState,
             LoginDisconnectSpec,
-            Packet755 as PacketLatest,
-            RawPacket755 as RawPacketLatest,
+            Packet756 as PacketLatest,
+            RawPacket756 as RawPacketLatest,
         },
         protocol::{
             HasPacketKind,

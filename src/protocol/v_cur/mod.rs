@@ -19,10 +19,10 @@ use crate::{
     client::SplinterClient,
     current::{
         proto::{
-            Packet755 as PacketLatest,
+            Packet756 as PacketLatest,
             PlayDisconnectSpec,
             PlayServerKeepAliveSpec,
-            RawPacket755 as RawPacketLatest,
+            RawPacket756 as RawPacketLatest,
             StatusPongSpec,
             StatusRequestSpec,
             StatusResponseSpec,

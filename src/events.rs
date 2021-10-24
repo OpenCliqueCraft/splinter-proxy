@@ -5,9 +5,9 @@ use mcproto_rs::protocol::{
 };
 
 use crate::current::proto::{
-    Packet755 as PacketLatest,
-    Packet755Kind as PacketLatestKind,
-    RawPacket755 as RawPacketLatest,
+    Packet756 as PacketLatest,
+    Packet756Kind as PacketLatestKind,
+    RawPacket756 as RawPacketLatest,
 };
 
 /// A packet that is lazily deserialized when the deserialized packet is accessed

@@ -4,8 +4,8 @@ use crate::{
     current::{
         proto::{
             EntityMetadataFieldData,
-            Packet755 as PacketLatest,
-            Packet755Kind as PacketLatestKind,
+            Packet756 as PacketLatest,
+            Packet756Kind as PacketLatestKind,
             PlayerInfoActionList,
         },
         protocol::PacketDirection,

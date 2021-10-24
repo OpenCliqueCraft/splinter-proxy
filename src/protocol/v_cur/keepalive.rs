@@ -3,8 +3,8 @@ use craftio_rs::CraftAsyncWriter;
 use crate::{
     current::{
         proto::{
-            Packet755 as PacketLatest,
-            Packet755Kind as PacketLatestKind,
+            Packet756 as PacketLatest,
+            Packet756Kind as PacketLatestKind,
             PlayClientKeepAliveSpec,
         },
         protocol::PacketDirection,

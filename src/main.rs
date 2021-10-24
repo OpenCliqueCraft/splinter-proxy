@@ -12,7 +12,6 @@ use std::sync::Arc;
 mod chat;
 mod client;
 mod commands;
-mod common;
 mod config;
 mod current;
 mod events;
