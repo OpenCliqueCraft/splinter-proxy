@@ -61,7 +61,7 @@ pub fn has_eids(kind: PacketLatestKind) -> bool {
             | PacketLatestKind::PlaySetPassengers
             | PacketLatestKind::PlayCollectItem
             | PacketLatestKind::PlayEntityMetadata
-            | PacketLatestKind::PlayDestroyEntity
+            | PacketLatestKind::PlayDestroyEntities
             | PacketLatestKind::PlayQueryEntityNbt
             | PacketLatestKind::PlayInteractEntity
             | PacketLatestKind::PlayEntityAction
@@ -266,17 +266,18 @@ pub fn map_eid(
                     }
                     (vec![], vec![])
                 }
-                PacketLatest::PlayDestroyEntity(ref mut body) => {
-                    // since we're removing the id from the mapping table here, we have to map them here as well
-                    let server_eid = *body.entity_id;
-                    body.entity_id = map
-                        .map_eid_server_to_proxy(server.id, *body.entity_id)
-                        .into();
-                    if let Some((proxy_eid, _)) = map.eids.remove_by_right(&(server.id, server_eid))
-                    {
-                        // debug!("destroying map s->p {} to {}", server_eid, proxy_eid);
-                        map.entity_data.remove(&proxy_eid);
-                        map.eid_gen.return_id(proxy_eid as u64);
+                PacketLatest::PlayDestroyEntities(ref mut body) => {
+                    for eid in body.entity_ids.iter_mut() {
+                        // since we're removing the id from the mapping table here, we have to map them here as well
+                        let server_eid = **eid;
+                        *eid = map.map_eid_server_to_proxy(server.id, **eid).into();
+                        if let Some((proxy_eid, _)) =
+                            map.eids.remove_by_right(&(server.id, server_eid))
+                        {
+                            // debug!("destroying map s->p {} to {}", server_eid, proxy_eid);
+                            map.entity_data.remove(&proxy_eid);
+                            map.eid_gen.return_id(proxy_eid as u64);
+                        }
                     }
                     (vec![], vec![])
                 }
