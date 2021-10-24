@@ -25,24 +25,19 @@ use super::{
 use crate::{
     client::{
         ClientSettings,
-        ClientVersion,
         SplinterClient,
     },
     mapping::{
         uuid::uuid_from_name,
         SplinterMapping,
     },
-    protocol::{
-        v753,
-        v755,
-    },
+    protocol::v_cur,
     proxy::SplinterProxy,
     server::SplinterServerConnection,
 };
 
 pub struct ClientBuilder<'a> {
     pub proxy: &'a Arc<SplinterProxy>,
-    pub version: &'a ClientVersion,
     pub name: Option<String>,
     pub uuid: Option<UUID4>,
     pub client_addr: SocketAddr,
@@ -55,12 +50,10 @@ impl<'a> ClientBuilder<'a> {
     pub fn new(
         proxy: &'a Arc<SplinterProxy>,
         client_addr: SocketAddr,
-        version: &'a ClientVersion,
         client_writer: AsyncCraftWriter,
     ) -> Self {
         Self {
             proxy,
-            version,
             name: None,
             uuid: None,
             client_addr,
@@ -107,7 +100,7 @@ impl<'a> ClientBuilder<'a> {
             self.name.as_ref().unwrap(),
             server.address
         );
-        send_handshake(&mut server_conn, self.proxy, self.version)
+        v_cur::send_handshake(&mut server_conn, self.proxy)
             .await
             .with_context(|| {
                 format!(
@@ -117,7 +110,7 @@ impl<'a> ClientBuilder<'a> {
             })?;
         server_conn.writer.get_mut().set_state(State::Login);
         server_reader.set_state(State::Login);
-        send_login_start(&mut server_conn, self.version, self.name.as_ref().unwrap())
+        v_cur::send_login_start(&mut server_conn, self.name.as_ref().unwrap())
             .await
             .with_context(|| {
                 format!(
@@ -148,7 +141,7 @@ impl<'a> ClientBuilder<'a> {
     ) -> anyhow::Result<()> {
         debug!("login success");
         if let Some(threshold) = self.proxy.config.compression_threshold {
-            send_set_compression(&mut self.client_writer, self.version, threshold)
+            v_cur::send_set_compression(&mut self.client_writer, threshold)
                 .await
                 .with_context(|| {
                     format!(
@@ -160,9 +153,8 @@ impl<'a> ClientBuilder<'a> {
                 .set_compression_threshold(Some(threshold));
             client_conn_reader.set_compression_threshold(Some(threshold));
         }
-        send_login_success(
+        v_cur::send_login_success(
             &mut self.client_writer,
-            self.version,
             self.name.as_ref().unwrap().to_owned(),
             self.uuid.unwrap(),
         )
@@ -193,7 +185,7 @@ impl<'a> ClientBuilder<'a> {
         } else {
             self.proxy.config.brand.as_str()
         };
-        send_brand(&mut self.client_writer, self.version, brand)
+        v_cur::send_brand(&mut self.client_writer, brand)
             .await
             .with_context(|| {
                 format!(
@@ -206,22 +198,18 @@ impl<'a> ClientBuilder<'a> {
     pub async fn play_client_settings(&mut self, settings: ClientSettings) -> anyhow::Result<()> {
         let settings_clone = settings.clone();
         self.settings = Some(settings);
-        send_client_settings(
-            self.server_conn.as_mut().unwrap(),
-            self.version,
-            settings_clone,
-        )
-        .await
-        .with_context(|| {
-            format!(
-                "Failed to relay client settings from {} to server {}",
-                self.name.as_ref().unwrap(),
-                self.server_conn.as_ref().unwrap().server.id,
-            )
-        })?;
+        v_cur::send_client_settings(self.server_conn.as_mut().unwrap(), settings_clone)
+            .await
+            .with_context(|| {
+                format!(
+                    "Failed to relay client settings from {} to server {}",
+                    self.name.as_ref().unwrap(),
+                    self.server_conn.as_ref().unwrap().server.id,
+                )
+            })?;
         let tags_opt = self.proxy.tags.lock().await.as_ref().cloned();
         if let Some(tags) = tags_opt {
-            send_tags(&mut self.client_writer, self.version, &tags)
+            v_cur::send_tags(&mut self.client_writer, &tags)
                 .await
                 .with_context(|| {
                     format!(
@@ -234,7 +222,7 @@ impl<'a> ClientBuilder<'a> {
     }
     pub async fn play_tags(&mut self, tags: Tags) -> anyhow::Result<()> {
         if self.proxy.tags.lock().await.is_none() {
-            send_tags(&mut self.client_writer, self.version, &tags)
+            v_cur::send_tags(&mut self.client_writer, &tags)
                 .await
                 .with_context(|| {
                     format!(
@@ -251,7 +239,6 @@ impl<'a> ClientBuilder<'a> {
             Arc::clone(self.proxy),
             self.name.unwrap(),
             self.client_writer,
-            *self.version,
             Arc::new(self.server_conn.unwrap()),
         );
         cl.settings.store(Arc::new(self.settings.unwrap()));
@@ -259,110 +246,24 @@ impl<'a> ClientBuilder<'a> {
     }
 }
 
-pub async fn send_handshake(
-    server_conn: &mut SplinterServerConnection,
-    proxy: &Arc<SplinterProxy>,
-    version: &ClientVersion,
-) -> anyhow::Result<()> {
-    match version {
-        ClientVersion::V753 => v753::send_handshake_v753(server_conn, proxy).await,
-        ClientVersion::V755 => v755::send_handshake_v755(server_conn, proxy).await,
-    }
-}
-pub async fn send_login_start(
-    server_conn: &mut SplinterServerConnection,
-    version: &ClientVersion,
-    name: impl ToString,
-) -> anyhow::Result<()> {
-    match version {
-        ClientVersion::V753 => v753::send_login_start_v753(server_conn, name).await,
-        ClientVersion::V755 => v755::send_login_start_v755(server_conn, name).await,
-    }
-}
-pub async fn send_set_compression(
-    writer: &mut AsyncCraftWriter,
-    version: &ClientVersion,
-    threshold: i32,
-) -> anyhow::Result<()> {
-    match version {
-        ClientVersion::V753 => v753::send_set_compression_v753(writer, threshold).await,
-        ClientVersion::V755 => v755::send_set_compression_v755(writer, threshold).await,
-    }
-}
-pub async fn send_login_success(
-    writer: &mut AsyncCraftWriter,
-    version: &ClientVersion,
-    name: String,
-    uuid: UUID4,
-) -> anyhow::Result<()> {
-    match version {
-        ClientVersion::V753 => v753::send_login_success_v753(writer, name, uuid).await,
-        ClientVersion::V755 => v755::send_login_success_v755(writer, name, uuid).await,
-    }
-}
-pub async fn send_brand(
-    writer: &mut AsyncCraftWriter,
-    version: &ClientVersion,
-    brand: impl AsRef<str>,
-) -> anyhow::Result<()> {
-    match version {
-        ClientVersion::V753 => v753::send_brand_v753(writer, brand).await,
-        ClientVersion::V755 => v755::send_brand_v755(writer, brand).await,
-    }
-}
-pub async fn send_client_settings(
-    server_conn: &mut SplinterServerConnection,
-    version: &ClientVersion,
-    settings: ClientSettings,
-) -> anyhow::Result<()> {
-    match version {
-        ClientVersion::V753 => v753::send_client_settings_v753(server_conn, settings).await,
-        ClientVersion::V755 => v755::send_client_settings_v755(server_conn, settings).await,
-    }
-}
-pub async fn send_tags(
-    writer: &mut AsyncCraftWriter,
-    version: &ClientVersion,
-    tags: &Tags,
-) -> anyhow::Result<()> {
-    match version {
-        ClientVersion::V753 => v753::send_tags_v753(writer, tags).await,
-        ClientVersion::V755 => v755::send_tags_v755(writer, tags).await,
-    }
-}
-
 pub async fn handle_client_login(
     mut conn: AsyncCraftConnection,
-    version: ClientVersion,
     addr: SocketAddr,
     proxy: Arc<SplinterProxy>,
 ) -> anyhow::Result<()> {
     conn.set_state(State::Login);
     let (mut client_conn_reader, client_conn_writer) = conn.into_split();
-    let mut client_builder = ClientBuilder::new(&proxy, addr, &version, client_conn_writer);
+    let mut client_builder = ClientBuilder::new(&proxy, addr, client_conn_writer);
     let mut server_conn_reader: Option<AsyncCraftReader> = None;
     let mut next_sender = PacketDirection::ServerBound;
     loop {
-        if let Some(val) = match version {
-            ClientVersion::V753 => {
-                v753::handle_client_login_packet(
-                    &mut next_sender,
-                    &mut client_builder,
-                    &mut server_conn_reader,
-                    &mut client_conn_reader,
-                )
-                .await
-            }
-            ClientVersion::V755 => {
-                v755::handle_client_login_packet(
-                    &mut next_sender,
-                    &mut client_builder,
-                    &mut server_conn_reader,
-                    &mut client_conn_reader,
-                )
-                .await
-            }
-        }
+        if let Some(val) = v_cur::handle_client_login_packet(
+            &mut next_sender,
+            &mut client_builder,
+            &mut server_conn_reader,
+            &mut client_conn_reader,
+        )
+        .await
         .with_context(|| "Handling login packet")?
         {
             if val {

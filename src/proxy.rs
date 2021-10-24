@@ -26,15 +26,11 @@ use crate::{
     },
     config::SplinterConfig,
     mapping::SplinterMapping,
-    protocol::{
-        ProtocolVersion,
-        Tags,
-    },
+    protocol::Tags,
     server::SplinterServer,
 };
 
 pub struct SplinterProxy {
-    pub protocol: ProtocolVersion,
     pub alive: ArcSwap<bool>,
     pub config: SplinterConfig,
     pub players: RwLock<HashMap<String, Arc<SplinterClient>>>,
@@ -59,7 +55,6 @@ impl SplinterProxy {
             RwLock::new(map)
         };
         Ok(Self {
-            protocol: ProtocolVersion::from_number(config.protocol)?,
             alive: ArcSwap::new(Arc::new(true)),
             config,
             players: RwLock::new(HashMap::new()),

@@ -14,6 +14,7 @@ mod client;
 mod commands;
 mod common;
 mod config;
+mod current;
 mod events;
 mod init;
 mod keepalive;

@@ -4,33 +4,28 @@ use mcproto_rs::protocol::{
     RawPacket,
 };
 
-use crate::protocol::ConnectionVersion;
+use crate::current::proto::{
+    Packet755 as PacketLatest,
+    Packet755Kind as PacketLatestKind,
+    RawPacket755 as RawPacketLatest,
+};
 
 /// A packet that is lazily deserialized when the deserialized packet is accessed
-pub struct LazyDeserializedPacket<'a, T>
-where
-    T: ConnectionVersion<'a>,
-{
-    raw_packet: Option<T::Protocol>,
-    de_packet: Option<
-        Result<<<T as ConnectionVersion<'a>>::Protocol as RawPacket<'a>>::Packet, PacketErr>,
-    >,
+pub struct LazyDeserializedPacket<'a> {
+    raw_packet: Option<RawPacketLatest<'a>>,
+    de_packet: Option<Result<PacketLatest, PacketErr>>,
 }
 
-impl<'a, T> LazyDeserializedPacket<'a, T>
-where
-    T: ConnectionVersion<'a>,
-{
+impl<'a> LazyDeserializedPacket<'a> {
     /// Creates a new lazy packet from a raw packet
-    pub fn from_raw_packet(raw_packet: T::Protocol) -> Self {
+    pub fn from_raw_packet(raw_packet: RawPacketLatest<'a>) -> Self {
         Self {
             raw_packet: Some(raw_packet),
-
             de_packet: None,
         }
     }
     /// Creates a new lazy packet from an already deserialized packet
-    pub fn from_packet(packet: <T::Protocol as RawPacket<'a>>::Packet) -> Self {
+    pub fn from_packet(packet: PacketLatest) -> Self {
         Self {
             raw_packet: None,
             de_packet: Some(Ok(packet)),
@@ -45,19 +40,17 @@ where
     }
     /// Gets a mutable reference to the deserialized packet. Packet may be deserialized during this
     /// call
-    pub fn packet(
-        &mut self,
-    ) -> Result<&mut <T::Protocol as RawPacket<'a>>::Packet, &mut PacketErr> {
+    pub fn packet(&mut self) -> Result<&mut PacketLatest, &mut PacketErr> {
         self.de();
         let res = self.de_packet.as_mut().unwrap();
         res.as_mut()
     }
     /// Returns ownership to the deserialized packet. Packet may be deserialized during this call
-    pub fn into_packet(mut self) -> Result<<T::Protocol as RawPacket<'a>>::Packet, PacketErr> {
+    pub fn into_packet(mut self) -> Result<PacketLatest, PacketErr> {
         self.de();
         self.de_packet.unwrap()
     }
-    pub fn into_raw_packet(self) -> Option<T::Protocol> {
+    pub fn into_raw_packet(self) -> Option<RawPacketLatest<'a>> {
         if self.is_deserialized() {
             None
         } else {
@@ -68,16 +61,8 @@ where
     pub fn is_deserialized(&self) -> bool {
         self.de_packet.is_some()
     }
-}
-
-impl<'a, T> LazyDeserializedPacket<'a, T>
-where
-    T: ConnectionVersion<'a>,
-    <<T as ConnectionVersion<'a>>::Protocol as RawPacket<'a>>::Packet:
-        HasPacketKind<Kind = <<T as ConnectionVersion<'a>>::Protocol as HasPacketKind>::Kind>,
-{
     /// Gets the kind of this packet
-    pub fn kind(&self) -> <T::Protocol as HasPacketKind>::Kind {
+    pub fn kind(&self) -> PacketLatestKind {
         if let Some(raw_packet) = self.raw_packet.as_ref() {
             raw_packet.kind()
         } else {

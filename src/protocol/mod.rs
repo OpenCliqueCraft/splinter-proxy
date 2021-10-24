@@ -18,30 +18,27 @@ use craftio_rs::{
     CraftReader,
     CraftWriter,
 };
-use mcproto_rs::{
-    protocol::{
-        HasPacketKind,
-        PacketDirection,
-        RawPacket,
-        State,
-    },
-    types::Chat,
-    v1_16_3::{
-        HandshakeNextState,
-        LoginDisconnectSpec,
-        Packet753,
-        RawPacket753,
-    },
-};
 use smol::Async;
 
 use crate::{
     chat::ToChat,
-    client::{
-        ClientVersion,
-        SplinterClient,
-    },
+    client::SplinterClient,
     commands::CommandSender,
+    current::{
+        proto::{
+            HandshakeNextState,
+            LoginDisconnectSpec,
+            Packet755 as PacketLatest,
+            RawPacket755 as RawPacketLatest,
+        },
+        protocol::{
+            HasPacketKind,
+            PacketDirection,
+            RawPacket,
+            State,
+        },
+        types::Chat,
+    },
     proxy::{
         ClientKickReason,
         SplinterProxy,
@@ -49,41 +46,9 @@ use crate::{
     server::SplinterServerConnection,
 };
 
-// The rule here is, you should not have to import anything protocol specific
-// outside of their respective module. For example, protocol 753 things from
-// mcproto_rs::v1_16_3 stays within v753.rs; nothing should have to import anything
-// directly from that specific protocol
-
 mod login;
-pub mod v753;
-pub mod v755;
-pub mod version;
+pub mod v_cur;
 pub use login::*;
-
-#[derive(Copy, Clone, PartialEq, Eq, Debug)]
-pub enum ProtocolVersion {
-    V753,
-    V754,
-    V755,
-}
-
-impl ProtocolVersion {
-    pub fn from_number(version: i32) -> anyhow::Result<ProtocolVersion> {
-        Ok(match version {
-            753 => ProtocolVersion::V753,
-            754 => ProtocolVersion::V754,
-            755 => ProtocolVersion::V755,
-            _ => anyhow::bail!("Invalid or unimplemented protocol version \"{}\"", version),
-        })
-    }
-    fn to_number(self) -> i32 {
-        match self {
-            ProtocolVersion::V753 => 753,
-            ProtocolVersion::V754 => 754,
-            ProtocolVersion::V755 => 755,
-        }
-    }
-}
 
 pub type AsyncCraftConnection =
     CraftConnection<Compat<AsyncArc<Async<TcpStream>>>, Compat<AsyncArc<Async<TcpStream>>>>;
@@ -132,43 +97,14 @@ pub async fn handle_handshake(
     addr: SocketAddr,
     proxy: Arc<SplinterProxy>,
 ) -> anyhow::Result<()> {
-    // yes we're using a specific protocol implementation here, but it should be
-    // the same process for all of them, and we choose the protocol
-    // we use for the client from here
-    let packet = conn.read_packet_async::<RawPacket753>().await?;
+    let packet = conn.read_packet_async::<RawPacketLatest>().await?;
     match packet {
-        Some(Packet753::Handshake(body)) => {
-            match body.next_state {
-                HandshakeNextState::Status => match ProtocolVersion::from_number(*body.version) {
-                    Ok(ProtocolVersion::V753 | ProtocolVersion::V754) => {
-                        v753::handle_client_status(conn, addr, proxy).await?
-                    }
-                    Ok(ProtocolVersion::V755) => {
-                        v755::handle_client_status(conn, addr, proxy).await?
-                    }
-                    Err(e) => {
-                        // invalid version, will just fall back to 753
-                        v753::handle_client_status(conn, addr, proxy).await?;
-                        bail!("Invalid handshake version \"{}\": {}", *body.version, e);
-                    }
-                },
-                HandshakeNextState::Login => match ProtocolVersion::from_number(*body.version) {
-                    Ok(ver) => {
-                        handle_client_login(conn, ver.into(), addr, proxy).await?;
-                    }
-                    Err(_e) => {
-                        // invalid version, send login disconnect
-                        conn.set_state(State::Login);
-                        conn.write_packet_async(Packet753::LoginDisconnect(LoginDisconnectSpec {
-                            message: Chat::from_text(
-                                &proxy.config.improper_version_disconnect_message,
-                            ),
-                        }))
-                        .await?;
-                    }
-                },
+        Some(PacketLatest::Handshake(body)) => match body.next_state {
+            HandshakeNextState::Status => v_cur::handle_client_status(conn, addr, proxy).await?,
+            HandshakeNextState::Login => {
+                handle_client_login(conn, addr, proxy).await?;
             }
-        }
+        },
         Some(other_packet) => bail!(
             "Expected a handshake packet; instead got: {:?}",
             other_packet
@@ -192,16 +128,9 @@ impl SplinterClient {
             if !**self.alive.load() || !**server_conn.alive.load() {
                 break;
             }
-            match match self.version {
-                ClientVersion::V753 => {
-                    v753::handle_server_packet(&proxy, self, &mut server_reader, &server, &sender)
-                        .await
-                }
-                ClientVersion::V755 => {
-                    v755::handle_server_packet(&proxy, self, &mut server_reader, &server, &sender)
-                        .await
-                }
-            } {
+            match v_cur::handle_server_packet(&proxy, self, &mut server_reader, &server, &sender)
+                .await
+            {
                 Ok(Some(())) => {}
                 Ok(None) => break, // connection closed
                 Err(e) => {
@@ -227,14 +156,7 @@ impl SplinterClient {
             if !**self.alive.load() {
                 break;
             }
-            match match self.version {
-                ClientVersion::V753 => {
-                    v753::handle_client_packet(&proxy, self, &mut client_reader, &sender).await
-                }
-                ClientVersion::V755 => {
-                    v755::handle_client_packet(&proxy, self, &mut client_reader, &sender).await
-                }
-            } {
+            match v_cur::handle_client_packet(&proxy, self, &mut client_reader, &sender).await {
                 Ok(Some(())) => {}
                 Ok(None) => break,
                 Err(e) => {
@@ -250,36 +172,4 @@ impl SplinterClient {
         info!("Client \"{}\" connection closed", self.name);
         Ok(())
     }
-    pub async fn send_message(
-        &self,
-        chat: impl ToChat,
-        sender: &CommandSender,
-    ) -> anyhow::Result<()> {
-        match self.version {
-            ClientVersion::V753 => self.send_message_v753(chat, sender).await,
-            ClientVersion::V755 => self.send_message_v755(chat, sender).await,
-        }
-    }
-    pub async fn send_kick(&self, reason: ClientKickReason) -> anyhow::Result<()> {
-        match self.version {
-            ClientVersion::V753 => self.send_kick_v753(reason).await,
-            ClientVersion::V755 => self.send_kick_v755(reason).await,
-        }
-    }
-    pub async fn send_keep_alive(&self, time: u128) -> anyhow::Result<()> {
-        match self.version {
-            ClientVersion::V753 => self.send_keep_alive_v753(time).await,
-            ClientVersion::V755 => self.send_keep_alive_v755(time).await,
-        }
-    }
-    pub async fn relay_message(&self, msg: &str) -> anyhow::Result<()> {
-        match self.version {
-            ClientVersion::V753 => self.relay_message_v753(msg).await,
-            ClientVersion::V755 => self.relay_message_v755(msg).await,
-        }
-    }
-}
-
-pub trait ConnectionVersion<'a> {
-    type Protocol: RawPacket<'a> + HasPacketKind + Send + Sync;
 }

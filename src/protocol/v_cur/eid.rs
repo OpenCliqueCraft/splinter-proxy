@@ -1,16 +1,15 @@
-use mcproto_rs::{
-    protocol::PacketDirection,
-    types::VarInt,
-    v1_17_0::{
-        EntityMetadataFieldData,
-        Packet755,
-        Packet755Kind,
-    },
-};
-
 use super::RelayPass;
 use crate::{
     client::SplinterClient,
+    current::{
+        proto::{
+            EntityMetadataFieldData,
+            Packet755 as PacketLatest,
+            Packet755Kind as PacketLatestKind,
+        },
+        protocol::PacketDirection,
+        types::VarInt,
+    },
     mapping::{
         EntityData,
         SplinterMapping,
@@ -31,48 +30,48 @@ inventory::submit! {
     }))
 }
 
-pub fn has_eids(kind: Packet755Kind) -> bool {
+pub fn has_eids(kind: PacketLatestKind) -> bool {
     matches!(
         kind,
-        Packet755Kind::PlayEntityAnimation
-            | Packet755Kind::PlayBlockBreakAnimation
-            | Packet755Kind::PlayEntityStatus
-            | Packet755Kind::PlayOpenHorseWindow
-            | Packet755Kind::PlayEntityPosition
-            | Packet755Kind::PlayEntityPositionAndRotation
-            | Packet755Kind::PlayEntityRotation
-            | Packet755Kind::PlayRemoveEntityEffect
-            | Packet755Kind::PlayEntityHeadLook
-            | Packet755Kind::PlayCamera
-            | Packet755Kind::PlayEntityVelocity
-            | Packet755Kind::PlayEntityEquipment
-            | Packet755Kind::PlayEntitySoundEffect
-            | Packet755Kind::PlayEntityTeleport
-            | Packet755Kind::PlayEntityProperties
-            | Packet755Kind::PlayEntityEffect
-            | Packet755Kind::PlayFacePlayer
-            | Packet755Kind::PlayAttachEntity
-            | Packet755Kind::PlayEndCombatEvent
-            | Packet755Kind::PlayDeathCombatEvent
-            | Packet755Kind::PlaySpawnEntity
-            | Packet755Kind::PlaySpawnExperienceOrb
-            | Packet755Kind::PlaySpawnLivingEntity
-            | Packet755Kind::PlaySpawnPainting
-            | Packet755Kind::PlaySpawnPlayer
-            | Packet755Kind::PlaySetPassengers
-            | Packet755Kind::PlayCollectItem
-            | Packet755Kind::PlayEntityMetadata
-            | Packet755Kind::PlayDestroyEntity
-            | Packet755Kind::PlayQueryEntityNbt
-            | Packet755Kind::PlayInteractEntity
-            | Packet755Kind::PlayEntityAction
-            | Packet755Kind::PlayUpdateCommandBlockMinecart
+        PacketLatestKind::PlayEntityAnimation
+            | PacketLatestKind::PlayBlockBreakAnimation
+            | PacketLatestKind::PlayEntityStatus
+            | PacketLatestKind::PlayOpenHorseWindow
+            | PacketLatestKind::PlayEntityPosition
+            | PacketLatestKind::PlayEntityPositionAndRotation
+            | PacketLatestKind::PlayEntityRotation
+            | PacketLatestKind::PlayRemoveEntityEffect
+            | PacketLatestKind::PlayEntityHeadLook
+            | PacketLatestKind::PlayCamera
+            | PacketLatestKind::PlayEntityVelocity
+            | PacketLatestKind::PlayEntityEquipment
+            | PacketLatestKind::PlayEntitySoundEffect
+            | PacketLatestKind::PlayEntityTeleport
+            | PacketLatestKind::PlayEntityProperties
+            | PacketLatestKind::PlayEntityEffect
+            | PacketLatestKind::PlayFacePlayer
+            | PacketLatestKind::PlayAttachEntity
+            | PacketLatestKind::PlayEndCombatEvent
+            | PacketLatestKind::PlayDeathCombatEvent
+            | PacketLatestKind::PlaySpawnEntity
+            | PacketLatestKind::PlaySpawnExperienceOrb
+            | PacketLatestKind::PlaySpawnLivingEntity
+            | PacketLatestKind::PlaySpawnPainting
+            | PacketLatestKind::PlaySpawnPlayer
+            | PacketLatestKind::PlaySetPassengers
+            | PacketLatestKind::PlayCollectItem
+            | PacketLatestKind::PlayEntityMetadata
+            | PacketLatestKind::PlayDestroyEntity
+            | PacketLatestKind::PlayQueryEntityNbt
+            | PacketLatestKind::PlayInteractEntity
+            | PacketLatestKind::PlayEntityAction
+            | PacketLatestKind::PlayUpdateCommandBlockMinecart
     )
 }
 pub fn map_eid(
     client: &SplinterClient,
     map: &mut SplinterMapping,
-    packet: &mut Packet755,
+    packet: &mut PacketLatest,
     sender: &PacketDirection,
 ) -> Option<u64> {
     match sender {
@@ -82,36 +81,36 @@ pub fn map_eid(
             let (nums, varnums): (Vec<&mut i32>, Vec<&mut VarInt>) = match packet {
                 // TODO: is it possible to use something less intensive than a vec here?
                 // trivial
-                Packet755::PlayEntityAnimation(body) => (vec![], vec![&mut body.entity_id]),
-                Packet755::PlayBlockBreakAnimation(body) => (vec![], vec![&mut body.entity_id]),
-                Packet755::PlayEntityStatus(body) => (vec![&mut body.entity_id], vec![]),
-                Packet755::PlayOpenHorseWindow(body) => (vec![&mut body.entity_id], vec![]),
-                Packet755::PlayEntityPosition(body) => (vec![], vec![&mut body.entity_id]),
-                Packet755::PlayEntityPositionAndRotation(body) => {
+                PacketLatest::PlayEntityAnimation(body) => (vec![], vec![&mut body.entity_id]),
+                PacketLatest::PlayBlockBreakAnimation(body) => (vec![], vec![&mut body.entity_id]),
+                PacketLatest::PlayEntityStatus(body) => (vec![&mut body.entity_id], vec![]),
+                PacketLatest::PlayOpenHorseWindow(body) => (vec![&mut body.entity_id], vec![]),
+                PacketLatest::PlayEntityPosition(body) => (vec![], vec![&mut body.entity_id]),
+                PacketLatest::PlayEntityPositionAndRotation(body) => {
                     (vec![], vec![&mut body.entity_id])
                 }
-                Packet755::PlayEntityRotation(body) => (vec![], vec![&mut body.entity_id]),
-                Packet755::PlayRemoveEntityEffect(body) => (vec![], vec![&mut body.entity_id]),
-                Packet755::PlayEntityHeadLook(body) => (vec![], vec![&mut body.entity_id]),
-                Packet755::PlayCamera(body) => (vec![], vec![&mut body.camera_id]),
-                Packet755::PlayEntityVelocity(body) => (vec![], vec![&mut body.entity_id]),
-                Packet755::PlayEntityEquipment(body) => (vec![], vec![&mut body.entity_id]),
-                Packet755::PlayEntitySoundEffect(body) => (vec![], vec![&mut body.entity_id]),
-                Packet755::PlayEntityTeleport(body) => (vec![], vec![&mut body.entity_id]),
-                Packet755::PlayEntityProperties(body) => (vec![], vec![&mut body.entity_id]),
-                Packet755::PlayEntityEffect(body) => (vec![], vec![&mut body.entity_id]),
-                Packet755::PlayEndCombatEvent(body) => (vec![&mut body.entity_id], vec![]),
-                Packet755::PlayDeathCombatEvent(body) => (vec![&mut body.entity_id], vec![]),
+                PacketLatest::PlayEntityRotation(body) => (vec![], vec![&mut body.entity_id]),
+                PacketLatest::PlayRemoveEntityEffect(body) => (vec![], vec![&mut body.entity_id]),
+                PacketLatest::PlayEntityHeadLook(body) => (vec![], vec![&mut body.entity_id]),
+                PacketLatest::PlayCamera(body) => (vec![], vec![&mut body.camera_id]),
+                PacketLatest::PlayEntityVelocity(body) => (vec![], vec![&mut body.entity_id]),
+                PacketLatest::PlayEntityEquipment(body) => (vec![], vec![&mut body.entity_id]),
+                PacketLatest::PlayEntitySoundEffect(body) => (vec![], vec![&mut body.entity_id]),
+                PacketLatest::PlayEntityTeleport(body) => (vec![], vec![&mut body.entity_id]),
+                PacketLatest::PlayEntityProperties(body) => (vec![], vec![&mut body.entity_id]),
+                PacketLatest::PlayEntityEffect(body) => (vec![], vec![&mut body.entity_id]),
+                PacketLatest::PlayEndCombatEvent(body) => (vec![&mut body.entity_id], vec![]),
+                PacketLatest::PlayDeathCombatEvent(body) => (vec![&mut body.entity_id], vec![]),
 
                 // slightly more complex
-                Packet755::PlayFacePlayer(body) => {
+                PacketLatest::PlayFacePlayer(body) => {
                     if let Some(target) = body.entity.as_mut() {
                         (vec![], vec![&mut target.entity_id])
                     } else {
                         (vec![], vec![])
                     }
                 }
-                Packet755::PlayAttachEntity(body) => (
+                PacketLatest::PlayAttachEntity(body) => (
                     if body.holding_entity_id < 0 {
                         vec![&mut body.attached_entity_id]
                     } else {
@@ -119,11 +118,11 @@ pub fn map_eid(
                     },
                     vec![],
                 ),
-                Packet755::PlayCollectItem(body) => (
+                PacketLatest::PlayCollectItem(body) => (
                     vec![],
                     vec![&mut body.collected_entity_id, &mut body.collector_entity_id],
                 ),
-                Packet755::PlaySetPassengers(body) => {
+                PacketLatest::PlaySetPassengers(body) => {
                     // TODO: spelling error in mcproto
                     (
                         vec![],
@@ -138,7 +137,7 @@ pub fn map_eid(
                 }
 
                 // entity spawning
-                Packet755::PlaySpawnEntity(body) => {
+                PacketLatest::PlaySpawnEntity(body) => {
                     let entity_type = *body.entity_type;
                     entity_data = Some(EntityData {
                         id: *body.entity_id,
@@ -168,28 +167,28 @@ pub fn map_eid(
                         vec![&mut body.entity_id],
                     )
                 }
-                Packet755::PlaySpawnExperienceOrb(body) => {
+                PacketLatest::PlaySpawnExperienceOrb(body) => {
                     entity_data = Some(EntityData {
                         id: *body.entity_id,
                         entity_type: 24,
                     });
                     (vec![], vec![&mut body.entity_id])
                 }
-                Packet755::PlaySpawnLivingEntity(body) => {
+                PacketLatest::PlaySpawnLivingEntity(body) => {
                     entity_data = Some(EntityData {
                         id: *body.entity_id,
                         entity_type: *body.entity_type,
                     });
                     (vec![], vec![&mut body.entity_id])
                 }
-                Packet755::PlaySpawnPainting(body) => {
+                PacketLatest::PlaySpawnPainting(body) => {
                     entity_data = Some(EntityData {
                         id: *body.entity_id,
                         entity_type: 55,
                     });
                     (vec![], vec![&mut body.entity_id])
                 }
-                Packet755::PlaySpawnPlayer(body) => {
+                PacketLatest::PlaySpawnPlayer(body) => {
                     entity_data = Some(EntityData {
                         id: *body.entity_id,
                         entity_type: 106,
@@ -197,7 +196,7 @@ pub fn map_eid(
                     (vec![], vec![&mut body.entity_id])
                 }
                 // complex
-                Packet755::PlayEntityMetadata(body) => {
+                PacketLatest::PlayEntityMetadata(body) => {
                     // we specially need to handle mapping here for the proxy side eid
                     let proxy_eid = map.map_eid_server_to_proxy(server.id, *body.entity_id);
                     body.entity_id = proxy_eid.into();
@@ -267,7 +266,7 @@ pub fn map_eid(
                     }
                     (vec![], vec![])
                 }
-                Packet755::PlayDestroyEntity(ref mut body) => {
+                PacketLatest::PlayDestroyEntity(ref mut body) => {
                     // since we're removing the id from the mapping table here, we have to map them here as well
                     let server_eid = *body.entity_id;
                     body.entity_id = map
@@ -297,10 +296,10 @@ pub fn map_eid(
         }
         PacketDirection::ServerBound => {
             let eid = match packet {
-                Packet755::PlayQueryEntityNbt(body) => &mut body.entity_id,
-                Packet755::PlayInteractEntity(body) => &mut body.entity_id,
-                Packet755::PlayEntityAction(body) => &mut body.entity_id,
-                Packet755::PlayUpdateCommandBlockMinecart(body) => &mut body.entity_id,
+                PacketLatest::PlayQueryEntityNbt(body) => &mut body.entity_id,
+                PacketLatest::PlayInteractEntity(body) => &mut body.entity_id,
+                PacketLatest::PlayEntityAction(body) => &mut body.entity_id,
+                PacketLatest::PlayUpdateCommandBlockMinecart(body) => &mut body.entity_id,
                 _ => unreachable!(),
             };
             if let Ok((server_id, server_eid)) = map.map_eid_proxy_to_server(**eid) {

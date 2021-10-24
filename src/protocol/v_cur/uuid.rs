@@ -1,17 +1,16 @@
-use mcproto_rs::{
-    protocol::PacketDirection,
-    uuid::UUID4,
-    v1_17_0::{
-        EntityMetadataFieldData,
-        Packet755,
-        Packet755Kind,
-        PlayerInfoActionList,
-    },
-};
-
 use super::RelayPass;
 use crate::{
     client::SplinterClient,
+    current::{
+        proto::{
+            EntityMetadataFieldData,
+            Packet755 as PacketLatest,
+            Packet755Kind as PacketLatestKind,
+            PlayerInfoActionList,
+        },
+        protocol::PacketDirection,
+        uuid::UUID4,
+    },
     mapping::SplinterMapping,
 };
 
@@ -29,39 +28,39 @@ inventory::submit! {
     }))
 }
 
-pub fn has_uuids(kind: Packet755Kind) -> bool {
+pub fn has_uuids(kind: PacketLatestKind) -> bool {
     matches!(
         kind,
-        Packet755Kind::PlaySpawnEntity
-            | Packet755Kind::PlaySpawnLivingEntity
-            | Packet755Kind::PlaySpawnPainting
-            | Packet755Kind::PlaySpawnPlayer
-            | Packet755Kind::PlayBossBar
-            | Packet755Kind::PlayServerChatMessage
-            | Packet755Kind::PlayEntityMetadata
-            | Packet755Kind::PlayPlayerInfo
-            | Packet755Kind::PlayEntityProperties
-            | Packet755Kind::PlaySpectate
+        PacketLatestKind::PlaySpawnEntity
+            | PacketLatestKind::PlaySpawnLivingEntity
+            | PacketLatestKind::PlaySpawnPainting
+            | PacketLatestKind::PlaySpawnPlayer
+            | PacketLatestKind::PlayBossBar
+            | PacketLatestKind::PlayServerChatMessage
+            | PacketLatestKind::PlayEntityMetadata
+            | PacketLatestKind::PlayPlayerInfo
+            | PacketLatestKind::PlayEntityProperties
+            | PacketLatestKind::PlaySpectate
     )
 }
 
 pub fn map_uuid(
     client: &SplinterClient,
     map: &mut SplinterMapping,
-    packet: &mut Packet755,
+    packet: &mut PacketLatest,
     sender: &PacketDirection,
 ) -> Option<u64> {
     match sender {
         PacketDirection::ClientBound => {
             let server = &client.active_server.load().server;
             let uuid: Option<&mut UUID4> = match packet {
-                Packet755::PlaySpawnEntity(body) => Some(&mut body.object_uuid),
-                Packet755::PlaySpawnLivingEntity(body) => Some(&mut body.entity_uuid),
-                Packet755::PlaySpawnPainting(body) => Some(&mut body.entity_uuid),
-                Packet755::PlaySpawnPlayer(body) => Some(&mut body.uuid),
-                Packet755::PlayBossBar(body) => Some(&mut body.uuid),
-                Packet755::PlayServerChatMessage(body) => Some(&mut body.sender),
-                Packet755::PlayEntityMetadata(body) => {
+                PacketLatest::PlaySpawnEntity(body) => Some(&mut body.object_uuid),
+                PacketLatest::PlaySpawnLivingEntity(body) => Some(&mut body.entity_uuid),
+                PacketLatest::PlaySpawnPainting(body) => Some(&mut body.entity_uuid),
+                PacketLatest::PlaySpawnPlayer(body) => Some(&mut body.uuid),
+                PacketLatest::PlayBossBar(body) => Some(&mut body.uuid),
+                PacketLatest::PlayServerChatMessage(body) => Some(&mut body.sender),
+                PacketLatest::PlayEntityMetadata(body) => {
                     let proxy_eid = body.entity_id;
                     if let Some(data) = map.entity_data.get(&proxy_eid) {
                         match data.entity_type {
@@ -106,7 +105,7 @@ pub fn map_uuid(
                         None
                     }
                 }
-                Packet755::PlayPlayerInfo(body) => {
+                PacketLatest::PlayPlayerInfo(body) => {
                     let uuid_arr: Vec<&mut UUID4> = match body.actions {
                         PlayerInfoActionList::Add(ref mut arr) => {
                             arr.iter_mut().map(|plinfo| &mut plinfo.uuid).collect()
@@ -127,7 +126,7 @@ pub fn map_uuid(
                     }
                     None
                 }
-                Packet755::PlayEntityProperties(body) => {
+                PacketLatest::PlayEntityProperties(body) => {
                     for property in body.properties.iter_mut() {
                         for modifier in property.modifiers.iter_mut() {
                             modifier.uuid = map.map_uuid_server_to_proxy(server.id, modifier.uuid);
@@ -142,7 +141,7 @@ pub fn map_uuid(
             }
         }
         PacketDirection::ServerBound => {
-            if let Packet755::PlaySpectate(body) = packet {
+            if let PacketLatest::PlaySpectate(body) = packet {
                 if let Ok((server_id, server_uuid)) = map.map_uuid_proxy_to_server(body.target) {
                     body.target = server_uuid;
                     return Some(server_id);

@@ -30,31 +30,14 @@ use crate::{
     protocol::{
         self,
         AsyncCraftWriter,
-        ProtocolVersion,
     },
     proxy::SplinterProxy,
     server::SplinterServerConnection,
 };
 
-#[derive(PartialEq, Eq, Clone, Copy)]
-pub enum ClientVersion {
-    V753,
-    V755,
-}
-impl From<ProtocolVersion> for ClientVersion {
-    fn from(ver: ProtocolVersion) -> ClientVersion {
-        match ver {
-            ProtocolVersion::V753 => ClientVersion::V753,
-            ProtocolVersion::V754 => ClientVersion::V753,
-            ProtocolVersion::V755 => ClientVersion::V755,
-        }
-    }
-}
-
 pub struct SplinterClient {
     pub name: String,
     pub writer: Mutex<AsyncCraftWriter>,
-    pub version: ClientVersion,
     pub alive: ArcSwap<bool>,
     pub uuid: UUID4,
     pub settings: ArcSwap<ClientSettings>,
@@ -68,13 +51,11 @@ impl SplinterClient {
         proxy: Arc<SplinterProxy>,
         name: String,
         writer: AsyncCraftWriter,
-        version: ClientVersion,
         active_server: Arc<SplinterServerConnection>,
     ) -> Self {
         let uuid = mapping::uuid::uuid_from_name(&name);
         Self {
             name,
-            version,
             writer: Mutex::new(writer),
             alive: ArcSwap::new(Arc::new(true)),
             uuid,

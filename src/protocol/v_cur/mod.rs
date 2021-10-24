@@ -9,33 +9,31 @@ use craftio_rs::{
     CraftAsyncWriter,
     CraftIo,
 };
-use mcproto_rs::{
-    protocol::{
-        PacketDirection,
-        State,
-    },
-    types::Chat,
-    v1_16_3::{
-        Packet753,
-        PlayDisconnectSpec,
-        PlayServerKeepAliveSpec,
-        RawPacket753,
-        StatusPongSpec,
-        StatusRequestSpec,
-        StatusResponseSpec,
-    },
-};
 
 use super::{
-    version::V753,
     AsyncCraftConnection,
     AsyncCraftReader,
     AsyncCraftWriter,
 };
 use crate::{
     client::SplinterClient,
+    current::{
+        proto::{
+            Packet755 as PacketLatest,
+            PlayDisconnectSpec,
+            PlayServerKeepAliveSpec,
+            RawPacket755 as RawPacketLatest,
+            StatusPongSpec,
+            StatusRequestSpec,
+            StatusResponseSpec,
+        },
+        protocol::{
+            PacketDirection,
+            State,
+        },
+        types::Chat,
+    },
     events::LazyDeserializedPacket,
-    protocol::version,
     proxy::{
         ClientKickReason,
         SplinterProxy,
@@ -64,20 +62,20 @@ pub async fn handle_client_status(
     proxy: Arc<SplinterProxy>,
 ) -> anyhow::Result<()> {
     conn.set_state(State::Status);
-    conn.write_packet_async(Packet753::StatusResponse(StatusResponseSpec {
+    conn.write_packet_async(PacketLatest::StatusResponse(StatusResponseSpec {
         response: proxy.config.server_status(&*proxy),
     }))
     .await?;
     loop {
-        match conn.read_packet_async::<RawPacket753>().await? {
-            Some(Packet753::StatusPing(body)) => {
-                conn.write_packet_async(Packet753::StatusPong(StatusPongSpec {
+        match conn.read_packet_async::<RawPacketLatest>().await? {
+            Some(PacketLatest::StatusPing(body)) => {
+                conn.write_packet_async(PacketLatest::StatusPong(StatusPongSpec {
                     payload: body.payload,
                 }))
                 .await?;
                 break;
             }
-            Some(Packet753::StatusRequest(StatusRequestSpec)) => {
+            Some(PacketLatest::StatusRequest(StatusRequestSpec)) => {
                 // do nothing.
                 // notchian client does not like it when we respond
                 // with a server status to this message
@@ -97,7 +95,7 @@ type RelayPassFn = Box<
             &Arc<SplinterServerConnection>,
             &Arc<SplinterClient>,
             &PacketDirection,
-            &mut LazyDeserializedPacket<V753>,
+            &mut LazyDeserializedPacket,
             &mut Option<PacketDirection>,
         ),
 >;
@@ -113,13 +111,12 @@ pub async fn handle_server_packet(
     sender: &PacketDirection,
 ) -> anyhow::Result<Option<()>> {
     let packet_opt = reader
-        .read_raw_packet_async::<RawPacket753>()
+        .read_raw_packet_async::<RawPacketLatest>()
         .await
         .with_context(|| format!("Failed to read packet {}: ", server.id))?;
     match packet_opt {
         Some(raw_packet) => {
-            let mut lazy_packet =
-                LazyDeserializedPacket::<version::V753>::from_raw_packet(raw_packet);
+            let mut lazy_packet = LazyDeserializedPacket::from_raw_packet(raw_packet);
             let mut destination = Some(*sender);
             for pass in inventory::iter::<RelayPass> {
                 (pass.0)(
@@ -142,20 +139,20 @@ pub async fn handle_server_packet(
     }
 }
 
-pub async fn handle_client_packet<'a>(
+// uh yeah, TODO: this is the same function as above minus like 2 lines
+pub async fn handle_client_packet(
     proxy: &Arc<SplinterProxy>,
     client: &Arc<SplinterClient>,
     reader: &mut AsyncCraftReader,
     sender: &PacketDirection,
 ) -> anyhow::Result<Option<()>> {
     let packet_opt = reader
-        .read_raw_packet_async::<RawPacket753>()
+        .read_raw_packet_async::<RawPacketLatest>()
         .await
         .with_context(|| format!("Failed to read packet from {}", client.name))?;
     match packet_opt {
         Some(raw_packet) => {
-            let mut lazy_packet =
-                LazyDeserializedPacket::<version::V753>::from_raw_packet(raw_packet);
+            let mut lazy_packet = LazyDeserializedPacket::from_raw_packet(raw_packet);
             let mut destination = Some(*sender);
             for pass in inventory::iter::<RelayPass> {
                 (pass.0)(
@@ -183,7 +180,7 @@ pub async fn handle_client_packet<'a>(
 async fn send_packet(
     client: &Arc<SplinterClient>,
     destination: &PacketDirection,
-    lazy_packet: LazyDeserializedPacket<'_, V753>,
+    lazy_packet: LazyDeserializedPacket<'_>,
 ) -> anyhow::Result<()> {
     match destination {
         PacketDirection::ClientBound => {
@@ -212,7 +209,7 @@ async fn send_packet(
 
 async fn write_packet(
     writer: &mut AsyncCraftWriter,
-    lazy_packet: LazyDeserializedPacket<'_, V753>,
+    lazy_packet: LazyDeserializedPacket<'_>,
 ) -> anyhow::Result<()> {
     if lazy_packet.is_deserialized() {
         writer
@@ -227,10 +224,7 @@ async fn write_packet(
 }
 
 impl SplinterClient {
-    pub async fn write_packet_v753(
-        &self,
-        packet: LazyDeserializedPacket<'_, V753>,
-    ) -> anyhow::Result<()> {
+    pub async fn write_packet(&self, packet: LazyDeserializedPacket<'_>) -> anyhow::Result<()> {
         let mut writer = self.writer.lock().await;
         if packet.is_deserialized() {
             writer.write_packet_async(packet.into_packet()?)
@@ -240,17 +234,17 @@ impl SplinterClient {
         .await?;
         Ok(())
     }
-    pub async fn send_kick_v753(&self, reason: ClientKickReason) -> anyhow::Result<()> {
-        self.write_packet_v753(LazyDeserializedPacket::<V753>::from_packet(
-            Packet753::PlayDisconnect(PlayDisconnectSpec {
+    pub async fn send_kick(&self, reason: ClientKickReason) -> anyhow::Result<()> {
+        self.write_packet(LazyDeserializedPacket::from_packet(
+            PacketLatest::PlayDisconnect(PlayDisconnectSpec {
                 reason: Chat::from_text(&reason.text()),
             }),
         ))
         .await
     }
-    pub async fn send_keep_alive_v753(&self, time: u128) -> anyhow::Result<()> {
-        self.write_packet_v753(LazyDeserializedPacket::<V753>::from_packet(
-            Packet753::PlayServerKeepAlive(PlayServerKeepAliveSpec {
+    pub async fn send_keep_alive(&self, time: u128) -> anyhow::Result<()> {
+        self.write_packet(LazyDeserializedPacket::from_packet(
+            PacketLatest::PlayServerKeepAlive(PlayServerKeepAliveSpec {
                 id: time as i64,
             }),
         ))

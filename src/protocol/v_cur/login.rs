@@ -9,25 +9,6 @@ use craftio_rs::{
     CraftAsyncWriter,
     CraftIo,
 };
-use mcproto_rs::{
-    protocol::PacketDirection,
-    uuid::UUID4,
-    v1_16_3::{
-        ClientChatMode,
-        ClientDisplayedSkinParts,
-        ClientMainHand,
-        HandshakeNextState,
-        HandshakeSpec,
-        LoginSetCompressionSpec,
-        LoginStartSpec,
-        LoginSuccessSpec,
-        Packet753,
-        PlayClientSettingsSpec,
-        PlayServerPluginMessageSpec,
-        PlayTagsSpec,
-        RawPacket753,
-    },
-};
 
 use crate::{
     client::{
@@ -35,6 +16,25 @@ use crate::{
         ClientSettings,
         MainHand,
         SkinPart,
+    },
+    current::{
+        proto::{
+            ClientChatMode,
+            ClientDisplayedSkinParts,
+            ClientMainHand,
+            HandshakeNextState,
+            HandshakeSpec,
+            LoginSetCompressionSpec,
+            LoginStartSpec,
+            LoginSuccessSpec,
+            Packet755 as PacketLatest,
+            PlayClientSettingsSpec,
+            PlayServerPluginMessageSpec,
+            PlayTagsSpec,
+            RawPacket755 as RawPacketLatest,
+        },
+        protocol::PacketDirection,
+        uuid::UUID4,
     },
     protocol::{
         AsyncCraftReader,
@@ -55,29 +55,29 @@ pub async fn handle_client_login_packet(
     let packet = match next_sender {
         PacketDirection::ServerBound => {
             client_conn_reader
-                .read_packet_async::<RawPacket753>()
+                .read_packet_async::<RawPacketLatest>()
                 .await?
         }
         PacketDirection::ClientBound => {
             server_conn_reader
                 .as_mut()
                 .unwrap()
-                .read_packet_async::<RawPacket753>()
+                .read_packet_async::<RawPacketLatest>()
                 .await?
         }
     };
     if let Some(packet) = packet {
         match packet {
-            Packet753::LoginStart(body) => {
+            PacketLatest::LoginStart(body) => {
                 builder.login_start(&body.name, server_conn_reader).await?;
                 *next_sender = PacketDirection::ClientBound;
             }
-            Packet753::LoginSetCompression(body) => {
+            PacketLatest::LoginSetCompression(body) => {
                 builder
                     .login_set_compression(*body.threshold, server_conn_reader.as_mut().unwrap());
                 *next_sender = PacketDirection::ClientBound;
             }
-            Packet753::LoginSuccess(body) => {
+            PacketLatest::LoginSuccess(body) => {
                 builder.proxy.mapping.lock().await.uuids.insert(
                     builder.uuid.unwrap(),
                     (builder.server_conn.as_ref().unwrap().server.id, body.uuid),
@@ -88,14 +88,14 @@ pub async fn handle_client_login_packet(
                     .await?;
                 *next_sender = PacketDirection::ClientBound;
             }
-            Packet753::PlayJoinGame(mut body) => {
+            PacketLatest::PlayJoinGame(mut body) => {
                 body.entity_id = builder.proxy.mapping.lock().await.map_eid_server_to_proxy(
                     builder.server_conn.as_ref().unwrap().server.id,
                     body.entity_id,
                 );
                 builder
                     .client_writer
-                    .write_packet_async(Packet753::PlayJoinGame(body))
+                    .write_packet_async(PacketLatest::PlayJoinGame(body))
                     .await
                     .with_context(|| {
                         format!(
@@ -106,20 +106,20 @@ pub async fn handle_client_login_packet(
                 builder.play_join_game().await?;
                 *next_sender = PacketDirection::ServerBound;
             }
-            Packet753::PlayClientPluginMessage(_body) => {
+            PacketLatest::PlayClientPluginMessage(_body) => {
                 //..
                 *next_sender = PacketDirection::ServerBound;
             }
-            Packet753::PlayClientSettings(body) => {
+            PacketLatest::PlayClientSettings(body) => {
                 builder.play_client_settings(body.clone().into()).await?;
                 *next_sender = PacketDirection::ClientBound;
             }
             packet
             @
-            (Packet753::PlayServerDifficulty(_)
-            | Packet753::PlayServerPlayerAbilities(_)
-            | Packet753::PlayDeclareRecipes(_)
-            | Packet753::PlayServerHeldItemChange(_)) => {
+            (PacketLatest::PlayServerDifficulty(_)
+            | PacketLatest::PlayServerPlayerAbilities(_)
+            | PacketLatest::PlayDeclareRecipes(_)
+            | PacketLatest::PlayServerHeldItemChange(_)) => {
                 builder
                     .client_writer
                     .write_packet_async(packet)
@@ -132,7 +132,7 @@ pub async fn handle_client_login_packet(
                     })?;
                 *next_sender = PacketDirection::ClientBound;
             }
-            Packet753::PlayTags(body) => {
+            PacketLatest::PlayTags(body) => {
                 let tags = Tags::from(&body);
                 builder.play_tags(tags).await?;
                 return Ok(Some(true));
@@ -147,15 +147,15 @@ pub async fn handle_client_login_packet(
         Ok(None)
     }
 }
-pub async fn send_handshake_v753(
+pub async fn send_handshake(
     server_conn: &mut SplinterServerConnection,
     proxy: &Arc<SplinterProxy>,
 ) -> anyhow::Result<()> {
     server_conn
         .writer
         .get_mut()
-        .write_packet_async(Packet753::Handshake(HandshakeSpec {
-            version: proxy.protocol.to_number().into(),
+        .write_packet_async(PacketLatest::Handshake(HandshakeSpec {
+            version: proxy.config.protocol.into(),
             server_address: format!("{}", server_conn.server.address.ip()),
             server_port: server_conn.server.address.port(),
             next_state: HandshakeNextState::Login,
@@ -163,49 +163,49 @@ pub async fn send_handshake_v753(
         .await
         .map_err(|e| e.into())
 }
-pub async fn send_login_start_v753(
+pub async fn send_login_start(
     server_conn: &mut SplinterServerConnection,
     name: impl ToString,
 ) -> anyhow::Result<()> {
     server_conn
         .writer
         .get_mut()
-        .write_packet_async(Packet753::LoginStart(LoginStartSpec {
+        .write_packet_async(PacketLatest::LoginStart(LoginStartSpec {
             name: name.to_string(),
         }))
         .await
         .map_err(|e| e.into())
 }
-pub async fn send_set_compression_v753(
+pub async fn send_set_compression(
     writer: &mut AsyncCraftWriter,
     threshold: i32,
 ) -> anyhow::Result<()> {
     writer
-        .write_packet_async(Packet753::LoginSetCompression(LoginSetCompressionSpec {
+        .write_packet_async(PacketLatest::LoginSetCompression(LoginSetCompressionSpec {
             threshold: threshold.into(),
         }))
         .await
         .map_err(|e| e.into())
 }
-pub async fn send_login_success_v753(
+pub async fn send_login_success(
     writer: &mut AsyncCraftWriter,
     name: String,
     uuid: UUID4,
 ) -> anyhow::Result<()> {
     writer
-        .write_packet_async(Packet753::LoginSuccess(LoginSuccessSpec {
+        .write_packet_async(PacketLatest::LoginSuccess(LoginSuccessSpec {
             username: name,
             uuid,
         }))
         .await
         .map_err(|e| e.into())
 }
-pub async fn send_brand_v753(
+pub async fn send_brand(
     writer: &mut AsyncCraftWriter,
     brand: impl AsRef<str>,
 ) -> anyhow::Result<()> {
     writer
-        .write_packet_async(Packet753::PlayServerPluginMessage(
+        .write_packet_async(PacketLatest::PlayServerPluginMessage(
             PlayServerPluginMessageSpec {
                 channel: "minecraft:brand".into(),
                 data: [&[brand.as_ref().len() as u8], brand.as_ref().as_bytes()]
@@ -216,20 +216,20 @@ pub async fn send_brand_v753(
         .await
         .map_err(|e| e.into())
 }
-pub async fn send_client_settings_v753(
+pub async fn send_client_settings(
     server_conn: &mut SplinterServerConnection,
     settings: ClientSettings,
 ) -> anyhow::Result<()> {
     server_conn
         .writer
         .get_mut()
-        .write_packet_async(Packet753::PlayClientSettings(settings.into()))
+        .write_packet_async(PacketLatest::PlayClientSettings(settings.into()))
         .await
         .map_err(|e| e.into())
 }
-pub async fn send_tags_v753(writer: &mut AsyncCraftWriter, tags: &Tags) -> anyhow::Result<()> {
+pub async fn send_tags(writer: &mut AsyncCraftWriter, tags: &Tags) -> anyhow::Result<()> {
     writer
-        .write_packet_async(Packet753::PlayTags(PlayTagsSpec::from(tags)))
+        .write_packet_async(PacketLatest::PlayTags(PlayTagsSpec::from(tags)))
         .await
         .map_err(|e| e.into())
 }
@@ -302,13 +302,14 @@ impl From<PlayClientSettingsSpec> for ClientSettings {
                 ClientMainHand::Left => MainHand::Left,
                 ClientMainHand::Right => MainHand::Right,
             },
-            text_filtering_enabled: false,
+            text_filtering_enabled: !settings.disable_text_filtering,
         }
     }
 }
 impl From<ClientSettings> for PlayClientSettingsSpec {
     fn from(settings: ClientSettings) -> PlayClientSettingsSpec {
         PlayClientSettingsSpec {
+            disable_text_filtering: !settings.text_filtering_enabled,
             locale: settings.locale,
             view_distance: settings.view_distance,
             chat_mode: settings.chat_mode.into(),

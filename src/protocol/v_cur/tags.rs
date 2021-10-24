@@ -4,23 +4,25 @@ use std::{
 };
 
 use bimap::BiHashMap;
-use mcproto_rs::{
-    types::{
-        CountedArray,
-        VarInt,
-    },
-    v1_17_0::{
-        PlayTagsSpec,
-        TagSpec,
-        TagType,
-        TypedTagList,
-    },
-};
 
-use crate::protocol::{
-    load_json_id_name_pairs,
-    TagList,
-    Tags,
+use crate::{
+    current::{
+        proto::{
+            PlayTagsSpec,
+            TagSpec,
+            TagType,
+            TypedTagList,
+        },
+        types::{
+            CountedArray,
+            VarInt,
+        },
+    },
+    protocol::{
+        load_json_id_name_pairs,
+        TagList,
+        Tags,
+    },
 };
 
 lazy_static! {
@@ -118,11 +120,5 @@ impl From<&Tags> for PlayTagsSpec {
         PlayTagsSpec {
             tags: typed_tags.into(),
         }
-        // PlayTagsSpec {
-        //     block_tags: tags_to_proto_tags(&tags.blocks, &BLOCK_MAP),
-        //     item_tags: tags_to_proto_tags(&tags.items, &ITEM_MAP),
-        //     fluid_tags: tags_to_proto_tags(&tags.fluids, &FLUID_MAP),
-        //     entity_tags: tags_to_proto_tags(&tags.entities, &ENTITY_MAP),
-        // }
     }
 }
