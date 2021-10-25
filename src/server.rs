@@ -18,9 +18,9 @@ use smol::{
 
 use crate::{
     client::SplinterClient,
-    mapping::SplinterMapping,
     protocol::{
         AsyncCraftConnection,
+        AsyncCraftReader,
         AsyncCraftWriter,
     },
 };
@@ -44,9 +44,9 @@ impl SplinterServer {
 
 pub struct SplinterServerConnection {
     pub writer: Mutex<AsyncCraftWriter>,
+    pub reader: Mutex<AsyncCraftReader>,
     pub server: Arc<SplinterServer>,
     pub alive: ArcSwap<bool>,
-    pub map: Mutex<SplinterMapping>,
 }
 
 impl SplinterServerConnection {

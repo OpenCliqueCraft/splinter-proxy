@@ -12,37 +12,23 @@ use async_compat::Compat;
 use async_dup::Arc as AsyncArc;
 use craftio_rs::{
     CraftAsyncReader,
-    CraftAsyncWriter,
     CraftConnection,
-    CraftIo,
     CraftReader,
     CraftWriter,
 };
 use smol::Async;
 
 use crate::{
-    chat::ToChat,
     client::SplinterClient,
-    commands::CommandSender,
     current::{
         proto::{
             HandshakeNextState,
-            LoginDisconnectSpec,
             Packet756 as PacketLatest,
             RawPacket756 as RawPacketLatest,
         },
-        protocol::{
-            HasPacketKind,
-            PacketDirection,
-            RawPacket,
-            State,
-        },
-        types::Chat,
+        protocol::PacketDirection,
     },
-    proxy::{
-        ClientKickReason,
-        SplinterProxy,
-    },
+    proxy::SplinterProxy,
     server::SplinterServerConnection,
 };
 
@@ -119,7 +105,7 @@ impl SplinterClient {
         self: &Arc<Self>,
         proxy: Arc<SplinterProxy>,
         server_conn: Arc<SplinterServerConnection>,
-        mut server_reader: AsyncCraftReader,
+        client: Arc<SplinterClient>,
     ) -> anyhow::Result<()> {
         let server = Arc::clone(&server_conn.server);
         let sender = PacketDirection::ClientBound;
@@ -128,9 +114,9 @@ impl SplinterClient {
             if !**self.alive.load() || !**server_conn.alive.load() {
                 break;
             }
-            match v_cur::handle_server_packet(&proxy, self, &mut server_reader, &server, &sender)
-                .await
-            {
+            let active_server = client.active_server.load();
+            let server_reader: &mut AsyncCraftReader = &mut *active_server.reader.lock().await;
+            match v_cur::handle_server_packet(&proxy, self, server_reader, &server, &sender).await {
                 Ok(Some(())) => {}
                 Ok(None) => break, // connection closed
                 Err(e) => {

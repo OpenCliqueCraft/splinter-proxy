@@ -11,13 +11,15 @@ use std::{
     sync::Arc,
 };
 
+use anyhow::Context;
 use arc_swap::ArcSwap;
 use async_compat::CompatExt;
 use async_dup::Arc as AsyncArc;
-use craftio_rs::CraftConnection;
-use mcproto_rs::{
-    protocol::PacketDirection,
-    uuid::UUID4,
+use craftio_rs::{
+    CraftAsyncReader,
+    CraftAsyncWriter,
+    CraftConnection,
+    CraftIo,
 };
 use smol::{
     lock::Mutex,
@@ -25,10 +27,25 @@ use smol::{
 };
 
 use crate::{
+    current::{
+        proto::{
+            ClientStatusAction,
+            PlayClientPlayerPositionAndRotationSpec,
+        },
+        protocol::{
+            PacketDirection,
+            State,
+        },
+        types::Slot,
+        uuid::UUID4,
+        PacketLatest,
+        RawPacketLatest,
+    },
     keepalive,
     mapping,
     protocol::{
         self,
+        v_cur,
         AsyncCraftWriter,
     },
     proxy::SplinterProxy,
@@ -45,6 +62,8 @@ pub struct SplinterClient {
     pub dummy_servers: Mutex<HashMap<u64, Arc<SplinterServerConnection>>>,
     pub proxy: Arc<SplinterProxy>,
     pub last_keep_alive: Mutex<u128>,
+
+    pub held_slot: ArcSwap<i8>,
 }
 impl SplinterClient {
     pub fn new(
@@ -64,6 +83,7 @@ impl SplinterClient {
             dummy_servers: Mutex::new(HashMap::new()),
             proxy,
             last_keep_alive: Mutex::new(keepalive::unix_time_millis()),
+            held_slot: ArcSwap::new(Arc::new(0)),
         }
     }
     pub async fn set_alive(&self, value: bool) {
@@ -71,6 +91,162 @@ impl SplinterClient {
     }
     pub fn server_id(&self) -> u64 {
         self.active_server.load().server.id
+    }
+    pub async fn connect_dummy(&self, target_id: u64) -> anyhow::Result<()> {
+        let server = Arc::clone(self.proxy.servers.read().await.get(&target_id).unwrap());
+        let (server_reader, server_writer) = server
+            .connect()
+            .await
+            .with_context(|| format!("Failed to connect dummy to server {}", target_id))?
+            .into_split();
+        let mut server_conn = SplinterServerConnection {
+            writer: Mutex::new(server_writer),
+            reader: Mutex::new(server_reader),
+            server: Arc::clone(&server),
+            alive: ArcSwap::new(Arc::new(true)),
+        };
+
+        // let mut player_position = None;
+
+        v_cur::send_handshake(&mut server_conn, &self.proxy).await?;
+        debug!("sent handshake");
+        server_conn.writer.get_mut().set_state(State::Login);
+        server_conn.reader.get_mut().set_state(State::Login);
+        v_cur::send_login_start(&mut server_conn, &self.name).await?;
+        debug!("sent login start");
+        loop {
+            let packet = server_conn
+                .reader
+                .get_mut()
+                .read_packet_async::<RawPacketLatest>()
+                .await?;
+            match packet {
+                Some(PacketLatest::LoginEncryptionRequest(_)) => bail!(
+                    "Failed to connect to server {} because it requested encryption",
+                    target_id
+                ),
+                Some(PacketLatest::LoginSetCompression(body)) => {
+                    debug!("received set compression");
+                    let threshold = if *body.threshold > 0 {
+                        Some(*body.threshold)
+                    } else {
+                        None
+                    };
+                    server_conn
+                        .writer
+                        .get_mut()
+                        .set_compression_threshold(threshold);
+                    server_conn
+                        .reader
+                        .get_mut()
+                        .set_compression_threshold(threshold);
+                }
+                Some(PacketLatest::LoginSuccess(body)) => {
+                    debug!("received login success");
+                    self.proxy
+                        .mapping
+                        .lock()
+                        .await
+                        .uuids
+                        .insert(self.uuid, (target_id, body.uuid));
+                    server_conn.writer.get_mut().set_state(State::Play);
+                    server_conn.reader.get_mut().set_state(State::Play);
+                }
+                Some(PacketLatest::PlayJoinGame(body)) => {
+                    debug!("received join game");
+                    self.proxy
+                        .mapping
+                        .lock()
+                        .await
+                        .map_eid_server_to_proxy(target_id, body.entity_id);
+                    // send brand here if wanted, but its not really necessary
+                    v_cur::send_client_settings(
+                        &mut server_conn,
+                        (&**self.settings.load()).clone(),
+                    )
+                    .await?;
+                }
+                Some(PacketLatest::PlayServerPluginMessage(_body)) => {
+                    // ignore
+                }
+                Some(PacketLatest::PlayServerDifficulty(_body)) => {
+                    // ignore
+                }
+                Some(PacketLatest::PlayServerPlayerAbilities(_body)) => {
+                    // ignore
+                    // TODO: may need to do something with this ex. transitioning a player between servers when theyre flying
+                }
+                Some(PacketLatest::PlayServerHeldItemChange(_body)) => {
+                    // ignore
+                }
+                Some(PacketLatest::PlayDeclareRecipes(_body)) => {
+                    // ignore
+                }
+                Some(PacketLatest::PlayTags(_body)) => {
+                    // ignore
+                }
+                Some(PacketLatest::PlayEntityStatus(_body)) => {
+                    // ignore
+                    // *probably* doesnt matter
+                }
+                Some(PacketLatest::PlayDeclareCommands(_body)) => {
+                    // ignore
+                }
+                Some(PacketLatest::PlayUnlockRecipes(_body)) => {
+                    // ignore
+                }
+                Some(PacketLatest::PlayServerPlayerPositionAndLook(body)) => {
+                    debug!("received player position and look");
+                    // if player_position.is_some() {
+                    v_cur::send_teleport_confirm(&mut server_conn, body.teleport_id).await?;
+                    debug!("sent teleport confirm");
+                    server_conn
+                        .writer
+                        .get_mut()
+                        .write_packet_async(PacketLatest::PlayClientPlayerPositionAndRotation(
+                            PlayClientPlayerPositionAndRotationSpec {
+                                feet_location: body.location,
+                                on_ground: false,
+                            },
+                        ))
+                        .await
+                        .map_err(|e| anyhow!(e))?;
+                    debug!("sent player position and rotation");
+                    v_cur::send_client_status(&mut server_conn, ClientStatusAction::PerformRespawn)
+                        .await?;
+                    debug!("sent client status");
+                    v_cur::send_held_item_change(&mut server_conn, **self.held_slot.load()).await?;
+                    debug!("sent item held change");
+                    break;
+                    //} else {
+                    //    player_position = Some(body);
+                    //}
+                }
+                Some(PacketLatest::PlayPlayerInfo(_body)) => {
+                    // ignore
+                }
+                Some(PacketLatest::PlayUpdateViewPosition(_body)) => {
+                    // ignore
+                }
+                Some(PacketLatest::PlayUpdateLight(_body)) => {
+                    // ignore
+                }
+                Some(PacketLatest::PlayChunkData(_body)) => {
+                    // ignore
+                }
+                Some(PacketLatest::PlaySpawnPosition(_body)) => {
+                    // ignore
+                }
+                Some(packet) => warn!("Unexpected packet during login {:?}", packet),
+                None => bail!("Connection attempt to server {} closed", target_id),
+            }
+        }
+        debug!("dummy connection done");
+        self.dummy_servers
+            .lock()
+            .await
+            .insert(target_id, Arc::new(server_conn));
+        Ok(())
     }
 }
 

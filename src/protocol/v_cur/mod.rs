@@ -48,11 +48,13 @@ mod chat;
 mod eid;
 mod keepalive;
 mod login;
+mod sync;
 mod tags;
 mod uuid;
 pub use chat::*;
 pub use eid::*;
 pub use login::*;
+pub use sync::*;
 pub use tags::*;
 pub use uuid::*;
 
@@ -139,7 +141,6 @@ pub async fn handle_server_packet(
     }
 }
 
-// uh yeah, TODO: this is the same function as above minus like 2 lines
 pub async fn handle_client_packet(
     proxy: &Arc<SplinterProxy>,
     client: &Arc<SplinterClient>,

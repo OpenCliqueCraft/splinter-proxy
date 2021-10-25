@@ -22,22 +22,26 @@ use crate::{
             ClientChatMode,
             ClientDisplayedSkinParts,
             ClientMainHand,
+            ClientStatusAction,
             HandshakeNextState,
             HandshakeSpec,
             LoginSetCompressionSpec,
             LoginStartSpec,
             LoginSuccessSpec,
-            Packet756 as PacketLatest,
+            PlayClientHeldItemChangeSpec,
             PlayClientSettingsSpec,
+            PlayClientStatusSpec,
             PlayServerPluginMessageSpec,
             PlayTagsSpec,
-            RawPacket756 as RawPacketLatest,
+            PlayTeleportConfirmSpec,
         },
         protocol::PacketDirection,
+        types::VarInt,
         uuid::UUID4,
+        PacketLatest,
+        RawPacketLatest,
     },
     protocol::{
-        AsyncCraftReader,
         AsyncCraftWriter,
         ClientBuilder,
         Tags,
@@ -49,7 +53,6 @@ use crate::{
 pub async fn handle_client_login_packet(
     next_sender: &mut PacketDirection,
     builder: &mut ClientBuilder<'_>,
-    server_conn_reader: &mut Option<AsyncCraftReader>,
     client_conn_reader: &mut (impl CraftAsyncReader + CraftIo + Send + Sync),
 ) -> anyhow::Result<Option<bool>> {
     let packet = match next_sender {
@@ -59,9 +62,12 @@ pub async fn handle_client_login_packet(
                 .await?
         }
         PacketDirection::ClientBound => {
-            server_conn_reader
+            builder
+                .server_conn
                 .as_mut()
                 .unwrap()
+                .reader
+                .get_mut()
                 .read_packet_async::<RawPacketLatest>()
                 .await?
         }
@@ -69,12 +75,11 @@ pub async fn handle_client_login_packet(
     if let Some(packet) = packet {
         match packet {
             PacketLatest::LoginStart(body) => {
-                builder.login_start(&body.name, server_conn_reader).await?;
+                builder.login_start(&body.name).await?;
                 *next_sender = PacketDirection::ClientBound;
             }
             PacketLatest::LoginSetCompression(body) => {
-                builder
-                    .login_set_compression(*body.threshold, server_conn_reader.as_mut().unwrap());
+                builder.login_set_compression(*body.threshold);
                 *next_sender = PacketDirection::ClientBound;
             }
             PacketLatest::LoginSuccess(body) => {
@@ -83,9 +88,7 @@ pub async fn handle_client_login_packet(
                     (builder.server_conn.as_ref().unwrap().server.id, body.uuid),
                 );
                 // body.uuid = builder.uuid.unwrap();
-                builder
-                    .login_success(client_conn_reader, server_conn_reader.as_mut().unwrap())
-                    .await?;
+                builder.login_success(client_conn_reader).await?;
                 *next_sender = PacketDirection::ClientBound;
             }
             PacketLatest::PlayJoinGame(mut body) => {
@@ -137,6 +140,9 @@ pub async fn handle_client_login_packet(
                 builder.play_tags(tags).await?;
                 return Ok(Some(true));
             }
+            PacketLatest::LoginEncryptionRequest(_body) => {
+                bail!("Server attempted to initiate encryption. Did you turn off online mode?");
+            }
             _ => warn!(
                 "Unexpected packet from {}: {:?}",
                 builder.client_addr, packet
@@ -147,6 +153,7 @@ pub async fn handle_client_login_packet(
         Ok(None)
     }
 }
+
 pub async fn send_handshake(
     server_conn: &mut SplinterServerConnection,
     proxy: &Arc<SplinterProxy>,
@@ -230,6 +237,50 @@ pub async fn send_client_settings(
 pub async fn send_tags(writer: &mut AsyncCraftWriter, tags: &Tags) -> anyhow::Result<()> {
     writer
         .write_packet_async(PacketLatest::PlayTags(PlayTagsSpec::from(tags)))
+        .await
+        .map_err(|e| e.into())
+}
+
+pub async fn send_teleport_confirm(
+    server_conn: &mut SplinterServerConnection,
+    teleport_id: VarInt,
+) -> anyhow::Result<()> {
+    server_conn
+        .writer
+        .get_mut()
+        .write_packet_async(PacketLatest::PlayTeleportConfirm(PlayTeleportConfirmSpec {
+            teleport_id: teleport_id.into(),
+        }))
+        .await
+        .map_err(|e| e.into())
+}
+
+pub async fn send_client_status(
+    server_conn: &mut SplinterServerConnection,
+    status: ClientStatusAction,
+) -> anyhow::Result<()> {
+    server_conn
+        .writer
+        .get_mut()
+        .write_packet_async(PacketLatest::PlayClientStatus(PlayClientStatusSpec {
+            action: status,
+        }))
+        .await
+        .map_err(|e| e.into())
+}
+
+pub async fn send_held_item_change(
+    server_conn: &mut SplinterServerConnection,
+    slot: i8,
+) -> anyhow::Result<()> {
+    server_conn
+        .writer
+        .get_mut()
+        .write_packet_async(PacketLatest::PlayClientHeldItemChange(
+            PlayClientHeldItemChangeSpec {
+                slot: slot as i16,
+            },
+        ))
         .await
         .map_err(|e| e.into())
 }

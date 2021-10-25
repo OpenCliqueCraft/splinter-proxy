@@ -18,7 +18,6 @@ use smol::lock::Mutex;
 
 use super::{
     AsyncCraftConnection,
-    AsyncCraftReader,
     AsyncCraftWriter,
     Tags,
 };
@@ -27,10 +26,7 @@ use crate::{
         ClientSettings,
         SplinterClient,
     },
-    mapping::{
-        uuid::uuid_from_name,
-        SplinterMapping,
-    },
+    mapping::uuid::uuid_from_name,
     protocol::v_cur,
     proxy::SplinterProxy,
     server::SplinterServerConnection,
@@ -62,11 +58,7 @@ impl<'a> ClientBuilder<'a> {
             settings: None,
         }
     }
-    pub async fn login_start(
-        &mut self,
-        name: impl AsRef<str>,
-        server_conn_reader_opt: &mut Option<AsyncCraftReader>,
-    ) -> anyhow::Result<()> {
+    pub async fn login_start(&mut self, name: impl AsRef<str>) -> anyhow::Result<()> {
         debug!("login start");
         self.name = Some(name.as_ref().to_owned());
         self.uuid = Some(uuid_from_name(name));
@@ -88,12 +80,12 @@ impl<'a> ClientBuilder<'a> {
             .connect()
             .await
             .with_context(|| "Failed to connect client to server")?;
-        let (mut server_reader, server_writer) = server_craft_conn.into_split();
+        let (server_reader, server_writer) = server_craft_conn.into_split();
         let mut server_conn = SplinterServerConnection {
             writer: Mutex::new(server_writer),
+            reader: Mutex::new(server_reader),
             server: Arc::clone(&server),
             alive: ArcSwap::new(Arc::new(true)),
-            map: Mutex::new(SplinterMapping::new()),
         };
         info!(
             "Connection for client \"{}\" initiated with {}",
@@ -109,7 +101,7 @@ impl<'a> ClientBuilder<'a> {
                 )
             })?;
         server_conn.writer.get_mut().set_state(State::Login);
-        server_reader.set_state(State::Login);
+        server_conn.reader.get_mut().set_state(State::Login);
         v_cur::send_login_start(&mut server_conn, self.name.as_ref().unwrap())
             .await
             .with_context(|| {
@@ -119,25 +111,19 @@ impl<'a> ClientBuilder<'a> {
                 )
             })?;
         self.server_conn = Some(server_conn);
-        *server_conn_reader_opt = Some(server_reader);
         debug!("login start end");
         Ok(())
     }
-    pub fn login_set_compression(&mut self, threshold: i32, server_conn_reader: &mut impl CraftIo) {
+    pub fn login_set_compression(&mut self, threshold: i32) {
         debug!("login set compression");
         let threshold = if threshold > 0 { Some(threshold) } else { None };
-        self.server_conn
-            .as_mut()
-            .unwrap()
-            .writer
-            .get_mut()
-            .set_compression_threshold(threshold);
-        server_conn_reader.set_compression_threshold(threshold);
+        let conn = self.server_conn.as_mut().unwrap();
+        conn.writer.get_mut().set_compression_threshold(threshold);
+        conn.reader.get_mut().set_compression_threshold(threshold);
     }
     pub async fn login_success(
         &mut self,
         client_conn_reader: &mut impl CraftIo,
-        server_conn_reader: &mut impl CraftIo,
     ) -> anyhow::Result<()> {
         debug!("login success");
         if let Some(threshold) = self.proxy.config.compression_threshold {
@@ -167,13 +153,9 @@ impl<'a> ClientBuilder<'a> {
         })?;
         client_conn_reader.set_state(State::Play);
         self.client_writer.set_state(State::Play);
-        self.server_conn
-            .as_mut()
-            .unwrap()
-            .writer
-            .get_mut()
-            .set_state(State::Play);
-        server_conn_reader.set_state(State::Play);
+        let conn = self.server_conn.as_mut().unwrap();
+        conn.writer.get_mut().set_state(State::Play);
+        conn.reader.get_mut().set_state(State::Play);
         debug!("login success end");
         Ok(())
     }
@@ -254,13 +236,11 @@ pub async fn handle_client_login(
     conn.set_state(State::Login);
     let (mut client_conn_reader, client_conn_writer) = conn.into_split();
     let mut client_builder = ClientBuilder::new(&proxy, addr, client_conn_writer);
-    let mut server_conn_reader: Option<AsyncCraftReader> = None;
     let mut next_sender = PacketDirection::ServerBound;
     loop {
         if let Some(val) = v_cur::handle_client_login_packet(
             &mut next_sender,
             &mut client_builder,
-            &mut server_conn_reader,
             &mut client_conn_reader,
         )
         .await
@@ -291,7 +271,7 @@ pub async fn handle_client_login(
         client_arc.handle_server_relay(
             proxy,
             Arc::clone(&*client_arc.active_server.load()),
-            server_conn_reader.unwrap(),
+            Arc::clone(&client_arc),
         ),
     )
     .await;

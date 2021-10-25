@@ -39,8 +39,8 @@ pub struct SplinterConfig {
 impl Default for SplinterConfig {
     fn default() -> Self {
         Self {
-            protocol: 754,
-            display_version: Some("Splinter 1.16.5".into()),
+            protocol: 756,
+            display_version: Some("Splinter 1.17.1".into()),
             simulation_servers: vec![(0, "127.0.0.1:25400".into())],
             proxy_address: "127.0.0.1:25565".into(),
             max_players: None,

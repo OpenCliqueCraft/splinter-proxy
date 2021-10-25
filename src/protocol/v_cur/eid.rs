@@ -17,10 +17,10 @@ use crate::{
 };
 
 inventory::submit! {
-    RelayPass(Box::new(|_proxy, connection, client, sender, lazy_packet, destination| {
+    RelayPass(Box::new(|proxy, _connection, client, sender, lazy_packet, destination| {
         if has_eids(lazy_packet.kind()) {
             if let Ok(ref mut packet) = lazy_packet.packet() {
-                let mut map = smol::block_on(connection.map.lock());
+                let mut map = smol::block_on(proxy.mapping.lock());
                 if let Some(_server_id) = map_eid(&*client, &mut map, packet, sender) {
                     // *destination = PacketDestination::Server(server_id);
                     *destination = None; // do something here?
