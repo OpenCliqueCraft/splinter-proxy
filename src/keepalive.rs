@@ -6,14 +6,25 @@ use std::{
     },
 };
 
+use craftio_rs::{
+    CraftAsyncReader,
+    CraftAsyncWriter,
+};
 use smol::Timer;
 
 use crate::{
+    client::SplinterClient,
+    current::{
+        proto::PlayClientKeepAliveSpec,
+        PacketLatest,
+        RawPacketLatest,
+    },
     init::SplinterSystem,
     proxy::{
         ClientKickReason,
         SplinterProxy,
     },
+    server::SplinterServerConnection,
 };
 inventory::submit! {
     SplinterSystem {
@@ -82,4 +93,40 @@ pub fn unix_time_millis() -> u128 {
             0
         }
     }
+}
+
+pub async fn watch_dummy(client: Arc<SplinterClient>, dummy_conn: Arc<SplinterServerConnection>) {
+    smol::spawn(async move {
+        loop {
+            if dummy_conn.server.id == client.server_id() || !**client.alive.load() {
+                break;
+            }
+            let mut lock = dummy_conn.reader.lock().await;
+            match lock.read_packet_async::<RawPacketLatest>().await {
+                Ok(Some(packet)) => match packet {
+                    PacketLatest::PlayServerKeepAlive(body) => {
+                        let mut writer = dummy_conn.writer.lock().await;
+                        if let Err(e) = (*writer).write_packet_async(PacketLatest::PlayClientKeepAlive(PlayClientKeepAliveSpec {
+                            id: body.id
+                        })).await {
+                            return error!("Failed to send keep alive for dummy client between {} and server {}: {}", &client.name, dummy_conn.server.id, e);
+                        }
+                    }
+                    _ => {
+                        //ignore all other packets
+                    }
+                }
+                Ok(None) => {
+                    return debug!("Dummy connection between {} and server {} closed", &client.name, dummy_conn.server.id);
+                }
+                Err(e) => {
+                    return error!(
+                        "Error reading incoming packet for dummy connection between {} and server {}: {}",
+                        &client.name, dummy_conn.server.id, e
+                    )
+                }
+            }
+        }
+    })
+    .detach()
 }
