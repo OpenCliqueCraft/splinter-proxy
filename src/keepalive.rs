@@ -97,9 +97,16 @@ pub fn unix_time_millis() -> u128 {
 
 pub async fn watch_dummy(client: Arc<SplinterClient>, dummy_conn: Arc<SplinterServerConnection>) {
     smol::spawn(async move {
+        debug!("Starting dummy watch on {} for server {}", &client.name, dummy_conn.server.id);
         loop {
-            if dummy_conn.server.id == client.server_id() || !**client.alive.load() {
-                break;
+            if dummy_conn.server.id == client.server_id() {
+                break debug!("dummy conn server id same as active server id ({})", dummy_conn.server.id);
+            }
+            if !**client.alive.load() {
+                break debug!("client for dummy conn {} no longer alive", dummy_conn.server.id);
+            }
+            if !**dummy_conn.alive.load() {
+                break debug!("dummy conn {} no longer alive", dummy_conn.server.id);
             }
             let mut lock = dummy_conn.reader.lock().await;
             match lock.read_packet_async::<RawPacketLatest>().await {
@@ -109,7 +116,8 @@ pub async fn watch_dummy(client: Arc<SplinterClient>, dummy_conn: Arc<SplinterSe
                         if let Err(e) = (*writer).write_packet_async(PacketLatest::PlayClientKeepAlive(PlayClientKeepAliveSpec {
                             id: body.id
                         })).await {
-                            return error!("Failed to send keep alive for dummy client between {} and server {}: {}", &client.name, dummy_conn.server.id, e);
+                            dummy_conn.alive.store(Arc::new(false));
+                            break error!("Failed to send keep alive for dummy client between {} and server {}: {}", &client.name, dummy_conn.server.id, e);
                         }
                     }
                     _ => {
@@ -117,16 +125,19 @@ pub async fn watch_dummy(client: Arc<SplinterClient>, dummy_conn: Arc<SplinterSe
                     }
                 }
                 Ok(None) => {
-                    return debug!("Dummy connection between {} and server {} closed", &client.name, dummy_conn.server.id);
+                    dummy_conn.alive.store(Arc::new(false));
+                    break debug!("Dummy connection between {} and server {} closed", &client.name, dummy_conn.server.id);
                 }
                 Err(e) => {
-                    return error!(
+                    dummy_conn.alive.store(Arc::new(false));
+                    break error!(
                         "Error reading incoming packet for dummy connection between {} and server {}: {}",
                         &client.name, dummy_conn.server.id, e
                     )
                 }
             }
         }
+        debug!("Closing dummy watch on {} for server {}", &client.name, dummy_conn.server.id);
     })
     .detach()
 }

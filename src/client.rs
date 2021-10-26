@@ -94,11 +94,21 @@ impl SplinterClient {
     pub fn server_id(&self) -> u64 {
         self.active_server.load().server.id
     }
+    pub async fn disconnect_dummy(&self, target_id: u64) -> anyhow::Result<()> {
+        let dummy = self
+            .dummy_servers
+            .lock()
+            .await
+            .remove(&target_id)
+            .ok_or_else(|| anyhow!("No dummy with specified target id"))?;
+        dummy.alive.store(Arc::new(false));
+        Ok(())
+    }
     pub async fn swap_dummy(self: &Arc<SplinterClient>, target_id: u64) -> anyhow::Result<()> {
         let mut dummies_lock = self.dummy_servers.lock().await;
         if let Some(dummy) = dummies_lock.remove(&target_id) {
-            let dummy_arc_clone = Arc::clone(&dummy);
             let previously_active_conn = self.active_server.swap(dummy);
+            let dummy_arc_clone = Arc::clone(&previously_active_conn);
             dummies_lock.insert(previously_active_conn.server.id, previously_active_conn);
             watch_dummy(Arc::clone(self), dummy_arc_clone).await;
             Ok(())
