@@ -1,10 +1,10 @@
 # Splinter Proxy
 
-The Splinter proxy is an advanced proxy intended to allow a player to traverse the network of Splinter Minecraft servers seamlessly. We do not use BungeeCord for this task because BungeeCord's abilities are limited and the JVM can be slower than target specific compiled code.
+The Splinter proxy is an advanced proxy intended to allow a player to traverse the network of Splinter Minecraft servers seamlessly.
 
 ## Splinter Project
 
-Minecraft servers have a problem: they are all single-threaded. Even if a Minecraft server were to be multithreaded, it would still be limited by the single processor that runs it. The project aims to turn a single Minecraft survival world into a distributed network of Minecraft servers, potentially making the player limit in a single world proportional to the amount of hardware.
+Minecraft servers struggle with large numbers of players. This project would turn a single Minecraft world into a scalable network of servers.
 
 ## Usage
 
@@ -18,18 +18,18 @@ Build and run through `cargo run`
 
 ### Setting up Minecraft server
 
-Grab a 1.16.5 server from [Spigot BuildTools](https://www.spigotmc.org/wiki/buildtools) or [Paper](https://papermc.io/downloads).
+Grab a 1.17.1 server from [Spigot BuildTools](https://www.spigotmc.org/wiki/buildtools) or [Paper](https://papermc.io/downloads).
 
 There are some required settings in server.properties:
 
-- `server-port=25400` Server port can be changed within the config file of the proxy.
-- `online-mode=false` to disable authentication, as authentication will be done either in the proxy or something on top of it like BungeeCord.
+- `server-port=25400` The server port that Splinter will look for can be changed within its configuration file `config.ron`.
+- `online-mode=false` to disable authentication. Splinter cannot use servers with authentication turned on.
 
-Then you can run the server with `java -jar [server jar name].jar --nogui` or run it as a normal application.
+Then you can run the server with `java -jar [server jar name].jar --nogui`.
 
 ### Joining the proxy
 
-Join with a 1.16.5 Minecraft client. If you're running the proxy on the same device you're playing from, then you can connect to `localhost:25565`.
+Join with a 1.17.1 Minecraft client. If you're running the proxy on the same device you're playing from, then you can connect to `localhost`.
 
 ## Contributing
 

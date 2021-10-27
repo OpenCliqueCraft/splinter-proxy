@@ -6,7 +6,8 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-mcproto-rs = "0.2.0"
+mcproto-rs = { git = "https://github.com/regenerativep/mcproto-rs", rev = "563d176b597215d9dd5f939a6a15b697d9888935" }
+#mcproto-rs = { path = "../mcproto-rs" }
 craftio-rs = { version = "0.1.0", features = ["compression"] }
 rand = "0.8.3"
 lazy_static = "1.4.0"
@@ -17,4 +18,15 @@ serde = "1.0.125"
 json = "0.12.4"
 bimap = "0.6.1"
 md5 = "0.7.0"
+smol = "1.2.5"
+anyhow = "1.0.41"
+async-compat = "0.2.1"
+async-dup = "1.2.2"
+inventory = "0.1.10"
+blocking = "1.0.2"
+futures-lite = "1.12.0"
+arc-swap = "1.3.0"
 
+[patch.crates-io]
+mcproto-rs = { git = "https://github.com/regenerativep/mcproto-rs", rev = "563d176b597215d9dd5f939a6a15b697d9888935" }
+#mcproto-rs = { path = "../mcproto-rs" }

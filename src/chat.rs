@@ -1,139 +1,118 @@
 use std::sync::Arc;
 
-use craftio_rs::{
-    CraftSyncWriter,
-    WriteError,
-};
 use mcproto_rs::{
-    protocol::RawPacket,
+    protocol::PacketDirection,
     types::{
         BaseComponent,
         Chat,
+        ColorCode,
         TextComponent,
-    },
-    uuid::UUID4,
-    v1_16_3::{
-        ChatPosition,
-        Packet753 as PacketLatest,
-        Packet753Kind as PacketLatestKind,
-        PlayClientChatMessageSpec,
-        PlayServerChatMessageSpec,
-        RawPacket753 as RawPacketLatest,
     },
 };
 
 use crate::{
+    client::SplinterClient,
     commands::CommandSender,
-    connection::{
-        write_packet_client,
-        write_packet_server,
-    },
-    mapping::{
-        LazyDeserializedPacket,
-        PacketMap,
-    },
-    state::{
-        SplinterClient,
-        SplinterState,
-    },
+    proxy::SplinterProxy,
 };
 
-pub trait IntoChat {
-    fn into_chat(self) -> Chat;
+pub trait ToChat {
+    fn to_chat(&self) -> Chat;
 }
-impl IntoChat for String {
-    fn into_chat(self) -> Chat {
-        Chat::from_text(self.as_str())
+impl ToChat for Chat {
+    fn to_chat(&self) -> Chat {
+        self.clone()
     }
 }
-impl IntoChat for &str {
-    fn into_chat(self) -> Chat {
+impl ToChat for &str {
+    fn to_chat(&self) -> Chat {
         Chat::from_text(self)
     }
 }
-impl IntoChat for Chat {
-    fn into_chat(self) -> Chat {
-        self
+impl ToChat for String {
+    fn to_chat(&self) -> Chat {
+        Chat::from_text(self.as_str())
+    }
+}
+pub fn format_chat_message_string(
+    sender: &CommandSender,
+    message: impl ToChat + ToString,
+) -> String {
+    format!("{}: {}", sender.name(), message.to_string(),)
+}
+pub fn format_chat_message(sender: &CommandSender, message: impl ToChat + ToString) -> Chat {
+    Chat::Text(TextComponent {
+        text: sender.name(),
+        base: BaseComponent {
+            bold: false,
+            italic: false,
+            underlined: false,
+            strikethrough: false,
+            obfuscated: false,
+            color: Some(ColorCode::Blue),
+            insertion: None,
+            click_event: None,
+            hover_event: None,
+            extra: vec![Box::new(Chat::Text(TextComponent {
+                text: ": ".into(),
+                base: BaseComponent {
+                    bold: false,
+                    italic: false,
+                    underlined: false,
+                    strikethrough: false,
+                    obfuscated: false,
+                    color: Some(ColorCode::White),
+                    insertion: None,
+                    click_event: None,
+                    hover_event: None,
+                    extra: vec![Box::new(message.to_chat())],
+                },
+            }))],
+        },
+    })
+}
+
+pub async fn receive_chat_message(
+    proxy: &Arc<SplinterProxy>,
+    client: &Arc<SplinterClient>,
+    sender: &PacketDirection,
+    msg: &str,
+) {
+    if msg.is_empty() {
+        return;
+    }
+    if *sender == PacketDirection::ClientBound {
+        return;
+    }
+    let cmd_sender = CommandSender::Player(Arc::clone(client));
+    let msg_string = format_chat_message_string(&cmd_sender, msg);
+    info!("{}", msg_string);
+    if let Some('/') = msg.chars().next() {
+        if let Err(e) = client.relay_message(msg).await {
+            error!(
+                "Failed to relay chat message from \"{}\" to server \"{}\": {}",
+                &client.name,
+                client.server_id(),
+                e
+            );
+        }
+    } else {
+        let msg_chat = format_chat_message(&cmd_sender, msg);
+        broadcast_message(proxy, &cmd_sender, msg_chat).await;
     }
 }
 
-pub fn send_message(
-    state: &Arc<SplinterState>,
+pub async fn broadcast_message(
+    proxy: &Arc<SplinterProxy>,
     sender: &CommandSender,
-    target: &Arc<SplinterClient>,
-    message: impl IntoChat,
-) -> Result<(), WriteError> {
-    write_packet_client(
-        target,
-        state,
-        LazyDeserializedPacket::from_packet(PacketLatest::PlayServerChatMessage(
-            PlayServerChatMessageSpec {
-                message: message.into_chat(),
-                position: match sender {
-                    CommandSender::Player(_) => ChatPosition::ChatBox,
-                    CommandSender::Console => ChatPosition::SystemMessage,
-                },
-                sender: sender.uuid(),
-            },
-        )),
-    )
-}
-
-/// Initializes chat handling
-pub fn init(state: &mut SplinterState) {
-    state.client_packet_map.add_action(
-        PacketLatestKind::PlayClientChatMessage,
-        Box::new(|client, state, lazy_packet| {
-            match lazy_packet.packet() {
-                Ok(packet) => {
-                    if let PacketLatest::PlayClientChatMessage(data) = packet {
-                        info!("{}: {}", client.name, data.message);
-                        match data.message.get(..1) {
-                            Some("/") => {
-                                let server = client.server();
-                                if let Err(e) = write_packet_server(
-                                    client,
-                                    &server,
-                                    state,
-                                    LazyDeserializedPacket::from_packet(
-                                        PacketLatest::PlayClientChatMessage(
-                                            PlayClientChatMessageSpec {
-                                                message: data.message.clone(),
-                                            },
-                                        ),
-                                    ),
-                                ) {
-                                    error!(
-                                        "Failed to send command message from {}: {}",
-                                        client.name, e
-                                    );
-                                }
-                            }
-                            _ => {
-                                let message = format!("{}: {}", client.name, data.message);
-                                for (_id, target) in state.players.read().unwrap().iter() {
-                                    if let Err(e) = send_message(
-                                        state,
-                                        &CommandSender::Player(Arc::clone(&client)),
-                                        target,
-                                        message.as_str(),
-                                    ) {
-                                        error!(
-                                            "Failed to send chat message from {} to {}: {}",
-                                            client.name, target.name, e
-                                        );
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                Err(e) => {
-                    error!("failed to deserialize chat message from player: {}", e);
-                }
-            };
-            false
-        }),
-    );
+    msg: impl ToChat + Clone,
+) {
+    for (_, target) in proxy.players.read().await.iter() {
+        if let Err(e) = target.send_message(msg.clone(), sender).await {
+            error!(
+                "Failed to send broadcast message to {}: {}",
+                &target.name, e
+            );
+        }
+    }
 }
