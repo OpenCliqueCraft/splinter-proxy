@@ -133,11 +133,9 @@ impl SplinterClient {
         // let mut player_position = None;
 
         v_cur::send_handshake(&mut server_conn, &self.proxy).await?;
-        debug!("sent handshake");
         server_conn.writer.get_mut().set_state(State::Login);
         server_conn.reader.get_mut().set_state(State::Login);
         v_cur::send_login_start(&mut server_conn, &self.name).await?;
-        debug!("sent login start");
         loop {
             let packet = server_conn
                 .reader
@@ -150,7 +148,6 @@ impl SplinterClient {
                     target_id
                 ),
                 Some(PacketLatest::LoginSetCompression(body)) => {
-                    debug!("received set compression");
                     let threshold = if *body.threshold > 0 {
                         Some(*body.threshold)
                     } else {
@@ -166,7 +163,6 @@ impl SplinterClient {
                         .set_compression_threshold(threshold);
                 }
                 Some(PacketLatest::LoginSuccess(body)) => {
-                    debug!("received login success");
                     self.proxy
                         .mapping
                         .lock()
@@ -177,7 +173,6 @@ impl SplinterClient {
                     server_conn.reader.get_mut().set_state(State::Play);
                 }
                 Some(PacketLatest::PlayJoinGame(body)) => {
-                    debug!("received join game");
                     self.proxy
                         .mapping
                         .lock()
@@ -220,10 +215,8 @@ impl SplinterClient {
                     // ignore
                 }
                 Some(PacketLatest::PlayServerPlayerPositionAndLook(body)) => {
-                    debug!("received player position and look");
                     // if player_position.is_some() {
                     v_cur::send_teleport_confirm(&mut server_conn, body.teleport_id).await?;
-                    debug!("sent teleport confirm");
                     server_conn
                         .writer
                         .get_mut()
@@ -235,12 +228,9 @@ impl SplinterClient {
                         ))
                         .await
                         .map_err(|e| anyhow!(e))?;
-                    debug!("sent player position and rotation");
                     v_cur::send_client_status(&mut server_conn, ClientStatusAction::PerformRespawn)
                         .await?;
-                    debug!("sent client status");
                     v_cur::send_held_item_change(&mut server_conn, **self.held_slot.load()).await?;
-                    debug!("sent item held change");
                     break;
                     //} else {
                     //    player_position = Some(body);
@@ -265,7 +255,6 @@ impl SplinterClient {
                 None => bail!("Connection attempt to server {} closed", target_id),
             }
         }
-        debug!("dummy connection done");
         let arc_conn = Arc::new(server_conn);
         self.dummy_servers
             .lock()

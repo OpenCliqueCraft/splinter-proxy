@@ -1,4 +1,7 @@
-use super::RelayPass;
+use super::{
+    PacketDestination,
+    RelayPass,
+};
 use crate::{
     client::SplinterClient,
     current::{
@@ -19,9 +22,8 @@ inventory::submit! {
         if has_uuids(lazy_packet.kind()) {
             if let Ok(ref mut packet) = lazy_packet.packet() {
                 let mut map = smol::block_on(proxy.mapping.lock());
-                if let Some(_server_id) = map_uuid(&*client, &mut *map, packet, sender) {
-                    // *destination = PacketDestination::Server(server_id);
-                    *destination = None; // do something here?
+                if let Some(server_id) = map_uuid(&*client, &mut *map, packet, sender) {
+                    *destination = PacketDestination::Server(server_id);
                 }
             }
         }
@@ -64,13 +66,13 @@ pub fn map_uuid(
                     let proxy_eid = body.entity_id;
                     if let Some(data) = map.entity_data.get(&proxy_eid) {
                         match data.entity_type {
-                            33 //horse
-                                | 103 // zombie horse
-                                | 74 // skeleton horse
-                                | 14 // donkey
-                                | 42 // llama
-                                | 79 // trader llama
-                                | 52 // mule 
+                            37 //horse
+                                | 108 // zombie horse
+                                | 79 // skeleton horse
+                                | 15 // donkey
+                                | 46 // llama
+                                | 94 // trader llama
+                                | 57 // mule 
                                 => {
                                 if let Some(EntityMetadataFieldData::OptUUID(Some(ref mut uuid))) = body.metadata.get_mut(18) {
                                     Some(uuid)
@@ -79,7 +81,7 @@ pub fn map_uuid(
                                     None
                                 }
                             }
-                            28 => { // fox
+                            29 => { // fox
                                 for index in [19, 20] {
                                     if let Some(EntityMetadataFieldData::OptUUID(Some(ref mut uuid))) = body.metadata.get_mut(index) {
                                         *uuid = map.map_uuid_server_to_proxy(server.id, *uuid);
@@ -88,9 +90,9 @@ pub fn map_uuid(
                                 }
                                 None
                             }
-                            7 // cat
-                                | 100 // wolf
-                                | 57 // parrot
+                            8 // cat
+                                | 105 // wolf
+                                | 62 // parrot
                                 => {
                                 if let Some(EntityMetadataFieldData::OptUUID(Some(ref mut uuid))) = body.metadata.get_mut(18) {
                                     Some(uuid)

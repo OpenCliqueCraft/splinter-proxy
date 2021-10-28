@@ -1,4 +1,7 @@
-use super::RelayPass;
+use super::{
+    PacketDestination,
+    RelayPass,
+};
 use crate::{
     client::SplinterClient,
     current::{
@@ -21,9 +24,9 @@ inventory::submit! {
         if has_eids(lazy_packet.kind()) {
             if let Ok(ref mut packet) = lazy_packet.packet() {
                 let mut map = smol::block_on(proxy.mapping.lock());
-                if let Some(_server_id) = map_eid(&*client, &mut map, packet, sender) {
-                    // *destination = PacketDestination::Server(server_id);
-                    *destination = None; // do something here?
+                if let Some(server_id) = map_eid(&*client, &mut map, packet, sender) {
+                    *destination = PacketDestination::Server(server_id);
+                    // *destination = None; // do something here?
                 }
             }
         }
@@ -146,11 +149,11 @@ pub fn map_eid(
                     // debug!("entity spawn type: {}", entity_type);
                     (
                         match entity_type {
-                            107 => {
+                            112 => {
                                 // bobber
                                 vec![&mut body.data]
                             }
-                            2 | 79 | 39 | 76 | 15 | 99 => {
+                            2 | 84 | 43 | 81 | 16 | 104 => {
                                 // arrow, spectral arrow, fireball, small fireball, dragon fireball, wither skull
                                 if body.data > 0 {
                                     // body.data is option varint. we need to specially handle this
@@ -170,7 +173,7 @@ pub fn map_eid(
                 PacketLatest::PlaySpawnExperienceOrb(body) => {
                     entity_data = Some(EntityData {
                         id: *body.entity_id,
-                        entity_type: 24,
+                        entity_type: 25,
                     });
                     (vec![], vec![&mut body.entity_id])
                 }
@@ -184,14 +187,14 @@ pub fn map_eid(
                 PacketLatest::PlaySpawnPainting(body) => {
                     entity_data = Some(EntityData {
                         id: *body.entity_id,
-                        entity_type: 55,
+                        entity_type: 60,
                     });
                     (vec![], vec![&mut body.entity_id])
                 }
                 PacketLatest::PlaySpawnPlayer(body) => {
                     entity_data = Some(EntityData {
                         id: *body.entity_id,
-                        entity_type: 106,
+                        entity_type: 111,
                     });
                     (vec![], vec![&mut body.entity_id])
                 }
@@ -202,7 +205,7 @@ pub fn map_eid(
                     body.entity_id = proxy_eid.into();
                     if let Some(data) = map.entity_data.get(&proxy_eid) {
                         match data.entity_type {
-                            27 => {
+                            28 => {
                                 // fireworks
                                 if let Some(EntityMetadataFieldData::OptVarInt(ref mut id)) =
                                     body.metadata.get_mut(9)
@@ -216,7 +219,7 @@ pub fn map_eid(
                                     }
                                 }
                             }
-                            107 => {
+                            112 => {
                                 // fishing hook
                                 if let Some(EntityMetadataFieldData::VarInt(ref mut id)) =
                                     body.metadata.get_mut(8)
@@ -230,7 +233,7 @@ pub fn map_eid(
                                     }
                                 }
                             }
-                            97 => {
+                            102 => {
                                 // wither
                                 for index in [16, 17, 18] {
                                     if let Some(EntityMetadataFieldData::VarInt(ref mut id)) =
@@ -246,7 +249,7 @@ pub fn map_eid(
                                     }
                                 }
                             }
-                            31 | 17 => {
+                            35 | 18 => {
                                 // guardian or elder guardian
                                 if let Some(EntityMetadataFieldData::VarInt(ref mut id)) =
                                     body.metadata.get_mut(17)

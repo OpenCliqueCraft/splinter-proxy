@@ -120,7 +120,7 @@ impl SplinterClient {
                 Ok(Some(())) => {}
                 Ok(None) => break, // connection closed
                 Err(e) => {
-                    error!("Failed to handle packet from server: {}", e);
+                    error!("Failed to handle packet from server: {:?}", e);
                 }
             }
         }

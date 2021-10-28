@@ -17,8 +17,10 @@ use crate::{
     current::{
         proto::PlayClientKeepAliveSpec,
         PacketLatest,
+        PacketLatestKind,
         RawPacketLatest,
     },
+    events::LazyDeserializedPacket,
     init::SplinterSystem,
     proxy::{
         ClientKickReason,
@@ -109,34 +111,54 @@ pub async fn watch_dummy(client: Arc<SplinterClient>, dummy_conn: Arc<SplinterSe
                 break debug!("dummy conn {} no longer alive", dummy_conn.server.id);
             }
             let mut lock = dummy_conn.reader.lock().await;
-            match lock.read_packet_async::<RawPacketLatest>().await {
-                Ok(Some(packet)) => match packet {
-                    PacketLatest::PlayServerKeepAlive(body) => {
-                        let mut writer = dummy_conn.writer.lock().await;
-                        if let Err(e) = (*writer).write_packet_async(PacketLatest::PlayClientKeepAlive(PlayClientKeepAliveSpec {
-                            id: body.id
-                        })).await {
-                            dummy_conn.alive.store(Arc::new(false));
-                            break error!("Failed to send keep alive for dummy client between {} and server {}: {}", &client.name, dummy_conn.server.id, e);
-                        }
-                    }
-                    _ => {
-                        //ignore all other packets
-                    }
-                }
+            let raw_packet = match lock.read_raw_packet_async::<RawPacketLatest>().await {
+                Ok(Some(packet)) => packet,
                 Ok(None) => {
                     dummy_conn.alive.store(Arc::new(false));
                     break debug!("Dummy connection between {} and server {} closed", &client.name, dummy_conn.server.id);
                 }
                 Err(e) => {
-                    dummy_conn.alive.store(Arc::new(false));
-                    break error!(
-                        "Error reading incoming packet for dummy connection between {} and server {}: {}",
-                        &client.name, dummy_conn.server.id, e
-                    )
+                    error!("{}-{} failed to read next raw packet: {}", &client.name, dummy_conn.server.id, e);
+                    continue;
+                },
+            };
+            let mut lazy_packet = LazyDeserializedPacket::from_raw_packet(raw_packet);
+            let packet_kind = lazy_packet.kind();
+            match packet_kind {
+                PacketLatestKind::PlayServerKeepAlive => match lazy_packet.packet() {
+                    Ok(packet) => match packet {
+                        PacketLatest::PlayServerKeepAlive(body) => {
+                            let mut writer = dummy_conn.writer.lock().await;
+                            debug!("{}-{} got keep alive", &client.name, dummy_conn.server.id);
+                            if let Err(e) = (*writer).write_packet_async(PacketLatest::PlayClientKeepAlive(PlayClientKeepAliveSpec {
+                                id: body.id
+                            })).await {
+                                dummy_conn.alive.store(Arc::new(false));
+                                break error!("Failed to send keep alive for dummy client between {} and server {}: {}", &client.name, dummy_conn.server.id, e);
+                            }
+                        }
+                        _ => {}
+                    }
+                    Err(e) => {
+                        dummy_conn.alive.store(Arc::new(false));
+                        break error!(
+                            "{}-{} failed deserialize packet (type {:?}): {:?}",
+                            &client.name, dummy_conn.server.id, packet_kind, e
+                        )
+                    }
+                }
+                PacketLatestKind::PlayChunkData
+                    | PacketLatestKind::PlayUpdateLight
+                    | PacketLatestKind::PlayTimeUpdate
+                    | PacketLatestKind::PlayUnloadChunk => {
+                    // dont print this
+                }
+                _kind => {
+                    // debug!("{}-{} receive: {:?}", &client.name, dummy_conn.server.id, kind);
                 }
             }
         }
+        client.dummy_servers.lock().await.remove(&dummy_conn.server.id);
         debug!("Closing dummy watch on {} for server {}", &client.name, dummy_conn.server.id);
     })
     .detach()

@@ -499,7 +499,7 @@ dependencies = [
 [[package]]
 name = "mcproto-rs"
 version = "0.2.0"
-source = "git+https://github.com/regenerativep/mcproto-rs?rev=563d176b597215d9dd5f939a6a15b697d9888935#563d176b597215d9dd5f939a6a15b697d9888935"
+source = "git+https://github.com/regenerativep/mcproto-rs?rev=7cc3a46ab0c89f13829e2345242f264f8a937471#7cc3a46ab0c89f13829e2345242f264f8a937471"
 dependencies = [
  "base64 0.12.3",
  "rand 0.7.3",

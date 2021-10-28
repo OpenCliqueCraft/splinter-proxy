@@ -113,6 +113,10 @@ pub async fn handle_client_login_packet(
                 //..
                 *next_sender = PacketDirection::ServerBound;
             }
+            PacketLatest::PlayServerPluginMessage(_body) => {
+                //..
+                *next_sender = PacketDirection::ClientBound;
+            }
             PacketLatest::PlayClientSettings(body) => {
                 builder.play_client_settings(body.clone().into()).await?;
                 *next_sender = PacketDirection::ClientBound;
