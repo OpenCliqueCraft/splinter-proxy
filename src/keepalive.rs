@@ -1,5 +1,8 @@
 use std::{
-    sync::Arc,
+    sync::{
+        atomic::Ordering,
+        Arc,
+    },
     time::{
         Duration,
         SystemTime,
@@ -104,17 +107,17 @@ pub async fn watch_dummy(client: Arc<SplinterClient>, dummy_conn: Arc<SplinterSe
             if dummy_conn.server.id == client.server_id() {
                 break debug!("dummy conn server id same as active server id ({})", dummy_conn.server.id);
             }
-            if !**client.alive.load() {
+            if !client.alive.load(Ordering::Relaxed) {
                 break debug!("client for dummy conn {} no longer alive", dummy_conn.server.id);
             }
-            if !**dummy_conn.alive.load() {
+            if !dummy_conn.alive.load(Ordering::Relaxed) {
                 break debug!("dummy conn {} no longer alive", dummy_conn.server.id);
             }
             let mut lock = dummy_conn.reader.lock().await;
             let raw_packet = match lock.read_raw_packet_async::<RawPacketLatest>().await {
                 Ok(Some(packet)) => packet,
                 Ok(None) => {
-                    dummy_conn.alive.store(Arc::new(false));
+                    dummy_conn.alive.store(false, Ordering::Relaxed);
                     break debug!("Dummy connection between {} and server {} closed", &client.name, dummy_conn.server.id);
                 }
                 Err(e) => {
@@ -133,14 +136,14 @@ pub async fn watch_dummy(client: Arc<SplinterClient>, dummy_conn: Arc<SplinterSe
                             if let Err(e) = (*writer).write_packet_async(PacketLatest::PlayClientKeepAlive(PlayClientKeepAliveSpec {
                                 id: body.id
                             })).await {
-                                dummy_conn.alive.store(Arc::new(false));
+                                dummy_conn.alive.store(false, Ordering::Relaxed);
                                 break error!("Failed to send keep alive for dummy client between {} and server {}: {}", &client.name, dummy_conn.server.id, e);
                             }
                         }
                         _ => {}
                     }
                     Err(e) => {
-                        dummy_conn.alive.store(Arc::new(false));
+                        dummy_conn.alive.store(false, Ordering::Relaxed);
                         break error!(
                             "{}-{} failed deserialize packet (type {:?}): {:?}",
                             &client.name, dummy_conn.server.id, packet_kind, e
@@ -158,7 +161,7 @@ pub async fn watch_dummy(client: Arc<SplinterClient>, dummy_conn: Arc<SplinterSe
                 }
             }
         }
-        client.grab_dummy(dummy_conn.server.id).unwrap();
+        client.grab_dummy(dummy_conn.server.id).ok();
         // client.dummy_servers.lock().await.remove(&dummy_conn.server.id);
         debug!("Closing dummy watch on {} for server {}", &client.name, dummy_conn.server.id);
     })

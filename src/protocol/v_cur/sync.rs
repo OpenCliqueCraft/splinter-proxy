@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::sync::atomic::Ordering;
 
 use super::RelayPass;
 use crate::current::proto::{
@@ -11,10 +11,10 @@ inventory::submit! {
         if lazy_packet.kind() == PacketLatestKind::PlayServerHeldItemChange || lazy_packet.kind() == PacketLatestKind::PlayClientHeldItemChange {
             match lazy_packet.packet() {
                 Ok(PacketLatest::PlayServerHeldItemChange(body)) => {
-                    client.held_slot.store(Arc::new(body.slot));
+                    client.held_slot.store(body.slot, Ordering::Relaxed);
                 },
                 Ok(PacketLatest::PlayClientHeldItemChange(body)) => {
-                    client.held_slot.store(Arc::new(body.slot as i8));
+                    client.held_slot.store(body.slot as i8, Ordering::Relaxed);
                 },
                 Ok(_) => unreachable!(),
                 Err(e) => error!("Failed to deserialize held item message: {}", e),

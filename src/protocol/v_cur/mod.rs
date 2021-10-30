@@ -117,7 +117,7 @@ pub async fn handle_server_packet(
     proxy: &Arc<SplinterProxy>,
     client: &Arc<SplinterClient>,
     reader: &mut AsyncCraftReader,
-    server: &Arc<SplinterServer>,
+    server: &SplinterServer,
     sender: &PacketDirection,
 ) -> anyhow::Result<Option<()>> {
     let packet_opt = reader

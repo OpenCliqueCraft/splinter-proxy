@@ -30,6 +30,9 @@ inventory::submit! {
                 "disconnect" => {
                     smol::block_on(client.disconnect_dummy(target_id))?;
                 },
+                "list" => {
+                    info!("Connected dummies: {}", client.dummy_servers.load().iter().map(|(id, _)| format!("{}", id)).reduce(|a, b| format!("{}, {}", a, b)).unwrap_or_else(|| String::from("None")));
+                },
                 _ => bail!("Unknown subcommand"),
             }
             Ok(())

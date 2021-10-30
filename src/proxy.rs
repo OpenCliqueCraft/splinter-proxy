@@ -5,11 +5,16 @@ use std::{
         TcpListener,
     },
     str::FromStr,
-    sync::Arc,
+    sync::{
+        atomic::{
+            AtomicBool,
+            Ordering,
+        },
+        Arc,
+    },
     time::Duration,
 };
 
-use arc_swap::ArcSwap;
 use smol::{
     lock::{
         Mutex,
@@ -31,7 +36,7 @@ use crate::{
 };
 
 pub struct SplinterProxy {
-    pub alive: ArcSwap<bool>,
+    pub alive: AtomicBool,
     pub config: SplinterConfig,
     pub players: RwLock<HashMap<String, Arc<SplinterClient>>>,
     pub servers: RwLock<HashMap<u64, Arc<SplinterServer>>>,
@@ -55,7 +60,7 @@ impl SplinterProxy {
             RwLock::new(map)
         };
         Ok(Self {
-            alive: ArcSwap::new(Arc::new(true)),
+            alive: AtomicBool::new(true),
             config,
             players: RwLock::new(HashMap::new()),
             servers,
@@ -64,7 +69,7 @@ impl SplinterProxy {
         })
     }
     pub fn is_alive(&self) -> bool {
-        **self.alive.load()
+        self.alive.load(Ordering::Relaxed)
     }
     pub async fn kick_client(
         &self,

@@ -1,4 +1,7 @@
-use std::sync::Arc;
+use std::sync::{
+    atomic::Ordering,
+    Arc,
+};
 
 use crate::{
     commands::{
@@ -24,7 +27,7 @@ inventory::submit! {
                 }
             }
             info!("Shutting down");
-            proxy.alive.store(Arc::new(false));
+            proxy.alive.store(false, Ordering::Relaxed);
             Ok(())
         }),
     }

@@ -3,10 +3,9 @@ use std::{
         SocketAddr,
         TcpStream,
     },
-    sync::Arc,
+    sync::atomic::AtomicBool,
 };
 
-use arc_swap::ArcSwap;
 use async_compat::CompatExt;
 use async_dup::Arc as AsyncArc;
 use craftio_rs::CraftConnection;
@@ -45,8 +44,8 @@ impl SplinterServer {
 pub struct SplinterServerConnection {
     pub writer: Mutex<AsyncCraftWriter>,
     pub reader: Mutex<AsyncCraftReader>,
-    pub server: Arc<SplinterServer>,
-    pub alive: ArcSwap<bool>,
+    pub server: SplinterServer,
+    pub alive: AtomicBool,
 }
 
 impl SplinterServerConnection {

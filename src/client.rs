@@ -5,7 +5,14 @@ use std::{
         SocketAddr,
         TcpStream,
     },
-    sync::Arc,
+    sync::{
+        atomic::{
+            AtomicBool,
+            AtomicI8,
+            Ordering,
+        },
+        Arc,
+    },
 };
 
 use anyhow::Context;
@@ -54,7 +61,7 @@ use crate::{
 pub struct SplinterClient {
     pub name: String,
     pub writer: Mutex<AsyncCraftWriter>,
-    pub alive: ArcSwap<bool>,
+    pub alive: AtomicBool,
     pub uuid: UUID4,
     pub settings: ArcSwap<ClientSettings>,
     pub active_server: ArcSwap<SplinterServerConnection>,
@@ -62,7 +69,7 @@ pub struct SplinterClient {
     pub proxy: Arc<SplinterProxy>,
     pub last_keep_alive: Mutex<u128>,
 
-    pub held_slot: ArcSwap<i8>,
+    pub held_slot: AtomicI8,
 }
 impl SplinterClient {
     pub fn new(
@@ -75,18 +82,18 @@ impl SplinterClient {
         Self {
             name,
             writer: Mutex::new(writer),
-            alive: ArcSwap::new(Arc::new(true)),
+            alive: AtomicBool::new(true),
             uuid,
             settings: ArcSwap::new(Arc::new(ClientSettings::default())),
             active_server: ArcSwap::new(active_server),
             dummy_servers: ArcSwap::new(Arc::new(Vec::new())),
             proxy,
             last_keep_alive: Mutex::new(keepalive::unix_time_millis()),
-            held_slot: ArcSwap::new(Arc::new(0)),
+            held_slot: AtomicI8::new(0),
         }
     }
     pub async fn set_alive(&self, value: bool) {
-        self.alive.store(Arc::new(value));
+        self.alive.store(value, Ordering::Relaxed);
     }
     pub fn server_id(&self) -> u64 {
         self.active_server.load().server.id
@@ -100,21 +107,12 @@ impl SplinterClient {
         let mut new_dummy_servers = dummy_servers.clone();
         let (_dummy_id, dummy) = new_dummy_servers.remove(ind);
         self.dummy_servers.store(Arc::new(new_dummy_servers));
-        dummy.alive.store(Arc::new(false));
+        dummy.alive.store(false, Ordering::Relaxed);
         Ok(())
     }
     /// takes a dummy away from the client's dummy servers and returns it
     pub fn grab_dummy(&self, target_id: u64) -> anyhow::Result<Arc<SplinterServerConnection>> {
-        // let dummy_servers = &**self.dummy_servers.load();
-        // let ind = dummy_servers
-        //     .iter()
-        //     .position(|v| v.0 == target_id)
-        //     .ok_or_else(|| anyhow!("No dummy with specified target id"))?;
-        // let mut new_dummy_servers = dummy_servers.clone();
-        // let (_, dummy) = new_dummy_servers.remove(ind);
-        // self.dummy_servers.store(Arc::new(new_dummy_servers));
-        // return Ok(dummy);
-        let mut res = Err(anyhow!("somehow rcu didnt run??"));
+        let mut res = Err(anyhow!("somehow rcu didnt run??")); // we know the following function will run once. this error should never happen, but im not sure how to do this without setting res to an initial value
         self.dummy_servers.rcu(|servers| {
             let ind = servers.iter().position(|v| v.0 == target_id);
             if let Some(ind) = ind {
@@ -152,8 +150,8 @@ impl SplinterClient {
         let mut server_conn = SplinterServerConnection {
             writer: Mutex::new(server_writer),
             reader: Mutex::new(server_reader),
-            server: Arc::clone(&server),
-            alive: ArcSwap::new(Arc::new(true)),
+            server: (*server).clone(),
+            alive: AtomicBool::new(true),
         };
 
         // let mut player_position = None;
@@ -256,7 +254,11 @@ impl SplinterClient {
                         .map_err(|e| anyhow!(e))?;
                     v_cur::send_client_status(&mut server_conn, ClientStatusAction::PerformRespawn)
                         .await?;
-                    v_cur::send_held_item_change(&mut server_conn, **self.held_slot.load()).await?;
+                    v_cur::send_held_item_change(
+                        &mut server_conn,
+                        self.held_slot.load(Ordering::Relaxed),
+                    )
+                    .await?;
                     break;
                     //} else {
                     //    player_position = Some(body);
