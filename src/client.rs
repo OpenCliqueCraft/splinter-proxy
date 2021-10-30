@@ -1,8 +1,5 @@
 use std::{
-    collections::{
-        HashMap,
-        HashSet,
-    },
+    collections::HashSet,
     iter::FromIterator,
     net::{
         SocketAddr,
@@ -61,7 +58,7 @@ pub struct SplinterClient {
     pub uuid: UUID4,
     pub settings: ArcSwap<ClientSettings>,
     pub active_server: ArcSwap<SplinterServerConnection>,
-    pub dummy_servers: Mutex<HashMap<u64, Arc<SplinterServerConnection>>>,
+    pub dummy_servers: ArcSwap<Vec<(u64, Arc<SplinterServerConnection>)>>,
     pub proxy: Arc<SplinterProxy>,
     pub last_keep_alive: Mutex<u128>,
 
@@ -82,7 +79,7 @@ impl SplinterClient {
             uuid,
             settings: ArcSwap::new(Arc::new(ClientSettings::default())),
             active_server: ArcSwap::new(active_server),
-            dummy_servers: Mutex::new(HashMap::new()),
+            dummy_servers: ArcSwap::new(Arc::new(Vec::new())),
             proxy,
             last_keep_alive: Mutex::new(keepalive::unix_time_millis()),
             held_slot: ArcSwap::new(Arc::new(0)),
@@ -95,26 +92,55 @@ impl SplinterClient {
         self.active_server.load().server.id
     }
     pub async fn disconnect_dummy(&self, target_id: u64) -> anyhow::Result<()> {
-        let dummy = self
-            .dummy_servers
-            .lock()
-            .await
-            .remove(&target_id)
+        let dummy_servers = &**self.dummy_servers.load();
+        let ind = dummy_servers
+            .iter()
+            .position(|v| v.0 == target_id)
             .ok_or_else(|| anyhow!("No dummy with specified target id"))?;
+        let mut new_dummy_servers = dummy_servers.clone();
+        let (_dummy_id, dummy) = new_dummy_servers.remove(ind);
+        self.dummy_servers.store(Arc::new(new_dummy_servers));
         dummy.alive.store(Arc::new(false));
         Ok(())
     }
+    /// takes a dummy away from the client's dummy servers and returns it
+    pub fn grab_dummy(&self, target_id: u64) -> anyhow::Result<Arc<SplinterServerConnection>> {
+        // let dummy_servers = &**self.dummy_servers.load();
+        // let ind = dummy_servers
+        //     .iter()
+        //     .position(|v| v.0 == target_id)
+        //     .ok_or_else(|| anyhow!("No dummy with specified target id"))?;
+        // let mut new_dummy_servers = dummy_servers.clone();
+        // let (_, dummy) = new_dummy_servers.remove(ind);
+        // self.dummy_servers.store(Arc::new(new_dummy_servers));
+        // return Ok(dummy);
+        let mut res = Err(anyhow!("somehow rcu didnt run??"));
+        self.dummy_servers.rcu(|servers| {
+            let ind = servers.iter().position(|v| v.0 == target_id);
+            if let Some(ind) = ind {
+                let mut new_servers = (**servers).clone();
+                res = Ok(new_servers.remove(ind).1);
+                Arc::new(new_servers)
+            } else {
+                res = Err(anyhow!("No dummy with specified target id"));
+                servers.clone()
+            }
+        });
+        return res;
+    }
+    pub fn add_dummy(&self, dummy: &Arc<SplinterServerConnection>) {
+        self.dummy_servers.rcu(|servers| {
+            let mut new_servers = (**servers).clone();
+            new_servers.push((dummy.server.id, Arc::clone(dummy)));
+            Arc::new(new_servers)
+        });
+    }
     pub async fn swap_dummy(self: &Arc<SplinterClient>, target_id: u64) -> anyhow::Result<()> {
-        let mut dummies_lock = self.dummy_servers.lock().await;
-        if let Some(dummy) = dummies_lock.remove(&target_id) {
-            let previously_active_conn = self.active_server.swap(dummy);
-            let dummy_arc_clone = Arc::clone(&previously_active_conn);
-            dummies_lock.insert(previously_active_conn.server.id, previously_active_conn);
-            watch_dummy(Arc::clone(self), dummy_arc_clone).await;
-            Ok(())
-        } else {
-            bail!("No dummy with specified target id");
-        }
+        let dummy = self.grab_dummy(target_id)?;
+        let previously_active_conn = self.active_server.swap(dummy);
+        self.add_dummy(&previously_active_conn);
+        watch_dummy(Arc::clone(self), previously_active_conn).await;
+        Ok(())
     }
     pub async fn connect_dummy(self: &Arc<SplinterClient>, target_id: u64) -> anyhow::Result<()> {
         let server = Arc::clone(self.proxy.servers.read().await.get(&target_id).unwrap());
@@ -256,10 +282,7 @@ impl SplinterClient {
             }
         }
         let arc_conn = Arc::new(server_conn);
-        self.dummy_servers
-            .lock()
-            .await
-            .insert(target_id, Arc::clone(&arc_conn));
+        self.add_dummy(&arc_conn);
         watch_dummy(Arc::clone(self), arc_conn).await;
         Ok(())
     }

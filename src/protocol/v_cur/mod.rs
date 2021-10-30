@@ -203,11 +203,13 @@ async fn send_packet<'a>(
         }
         PacketDestination::Server(server_id) => {
             let active_server = client.active_server.load();
-            let dummy_lock = client.dummy_servers.lock().await; // yuck
+            let dummy_servers = client.dummy_servers.load();
             let writer = &mut *(if active_server.server.id == *server_id {
                 active_server.writer.lock().await
             } else {
-                if let Some(server_conn) = dummy_lock.get(server_id) {
+                if let Some((_id, server_conn)) =
+                    dummy_servers.iter().find(|(id, _)| *id == *server_id)
+                {
                     server_conn.writer.lock().await
                 } else {
                     bail!("No connected server from mapped server id");
@@ -218,7 +220,7 @@ async fn send_packet<'a>(
                 .with_context(|| format!("Failed to write packet to server \"{}\"", server_id))?;
         }
         PacketDestination::AllServers => {
-            for (server_id, server_conn) in client.dummy_servers.lock().await.iter() {
+            for (server_id, server_conn) in client.dummy_servers.load().iter() {
                 let writer = &mut *server_conn.writer.lock().await;
                 write_packet(writer, lazy_packet.clone())
                     .await

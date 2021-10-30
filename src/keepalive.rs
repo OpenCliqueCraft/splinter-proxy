@@ -158,7 +158,8 @@ pub async fn watch_dummy(client: Arc<SplinterClient>, dummy_conn: Arc<SplinterSe
                 }
             }
         }
-        client.dummy_servers.lock().await.remove(&dummy_conn.server.id);
+        client.grab_dummy(dummy_conn.server.id).unwrap();
+        // client.dummy_servers.lock().await.remove(&dummy_conn.server.id);
         debug!("Closing dummy watch on {} for server {}", &client.name, dummy_conn.server.id);
     })
     .detach()
