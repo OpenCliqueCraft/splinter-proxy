@@ -16,7 +16,7 @@ use smol::{
 };
 
 use crate::{
-    client::SplinterClient,
+    current::uuid::UUID4,
     protocol::{
         AsyncCraftConnection,
         AsyncCraftReader,
@@ -46,10 +46,7 @@ pub struct SplinterServerConnection {
     pub reader: Mutex<AsyncCraftReader>,
     pub server: SplinterServer,
     pub alive: AtomicBool,
-}
 
-impl SplinterServerConnection {
-    pub fn _is_dummy(&self, client: &SplinterClient) -> bool {
-        client.server_id() != self.server.id
-    }
+    pub eid: i32,
+    pub uuid: UUID4,
 }

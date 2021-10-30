@@ -134,9 +134,34 @@ impl SplinterClient {
         });
     }
     pub async fn swap_dummy(self: &Arc<SplinterClient>, target_id: u64) -> anyhow::Result<()> {
+        // grab the dummy from the target id
         let dummy = self.grab_dummy(target_id)?;
+        // remember the dummy player's eid and uuid
+        let (dummy_eid, dummy_uuid) = (dummy.eid, dummy.uuid);
+        // swap the dummy connection with the active connection
         let previously_active_conn = self.active_server.swap(dummy);
+        // get the ampping tables
+        let mapping = &mut *self.proxy.mapping.lock().await;
+        // find the corresponding proxy-side ids
+        let (proxy_eid, proxy_uuid) = (
+            *mapping
+                .eids
+                .get_by_right(&(previously_active_conn.server.id, previously_active_conn.eid))
+                .unwrap(),
+            *mapping
+                .uuids
+                .get_by_right(&(
+                    previously_active_conn.server.id,
+                    previously_active_conn.uuid,
+                ))
+                .unwrap(),
+        );
+        // replace what the proxy side ids map to to the now active previously dummy eid and uuid
+        mapping.eids.insert(proxy_eid, (target_id, dummy_eid));
+        mapping.uuids.insert(proxy_uuid, (target_id, dummy_uuid));
+        // put the previously active connection into the dummy connections
         self.add_dummy(&previously_active_conn);
+        // watch the now dummy previously active connection
         watch_dummy(Arc::clone(self), previously_active_conn).await;
         Ok(())
     }
@@ -152,6 +177,8 @@ impl SplinterClient {
             reader: Mutex::new(server_reader),
             server: (*server).clone(),
             alive: AtomicBool::new(true),
+            eid: -1,
+            uuid: UUID4::from(0u128),
         };
 
         // let mut player_position = None;
@@ -187,21 +214,23 @@ impl SplinterClient {
                         .set_compression_threshold(threshold);
                 }
                 Some(PacketLatest::LoginSuccess(body)) => {
-                    self.proxy
-                        .mapping
-                        .lock()
-                        .await
-                        .uuids
-                        .insert(self.uuid, (target_id, body.uuid));
+                    // self.proxy
+                    // .mapping
+                    // .lock()
+                    // .await
+                    // .uuids
+                    // .insert(self.uuid, (target_id, body.uuid));
+                    server_conn.uuid = body.uuid;
                     server_conn.writer.get_mut().set_state(State::Play);
                     server_conn.reader.get_mut().set_state(State::Play);
                 }
                 Some(PacketLatest::PlayJoinGame(body)) => {
-                    self.proxy
-                        .mapping
-                        .lock()
-                        .await
-                        .map_eid_server_to_proxy(target_id, body.entity_id);
+                    server_conn.eid = body.entity_id;
+                    // self.proxy
+                    // .mapping
+                    // .lock()
+                    // .await
+                    // .map_eid_server_to_proxy(target_id, body.entity_id);
                     // send brand here if wanted, but its not really necessary
                     v_cur::send_client_settings(
                         &mut server_conn,

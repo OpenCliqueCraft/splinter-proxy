@@ -88,6 +88,8 @@ impl<'a> ClientBuilder<'a> {
             reader: Mutex::new(server_reader),
             server: (*server).clone(),
             alive: AtomicBool::new(true),
+            eid: -1,
+            uuid: UUID4::from(0u128),
         };
         info!(
             "Connection for client \"{}\" initiated with {}",
