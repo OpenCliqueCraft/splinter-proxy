@@ -83,6 +83,7 @@ pub async fn handle_client_login_packet(
                 *next_sender = PacketDirection::ClientBound;
             }
             PacketLatest::LoginSuccess(body) => {
+                builder.server_conn.as_mut().unwrap().uuid = body.uuid;
                 builder.proxy.mapping.lock().await.uuids.insert(
                     builder.uuid.unwrap(),
                     (builder.server_conn.as_ref().unwrap().server.id, body.uuid),
@@ -92,6 +93,7 @@ pub async fn handle_client_login_packet(
                 *next_sender = PacketDirection::ClientBound;
             }
             PacketLatest::PlayJoinGame(mut body) => {
+                builder.server_conn.as_mut().unwrap().eid = body.entity_id;
                 body.entity_id = builder.proxy.mapping.lock().await.map_eid_server_to_proxy(
                     builder.server_conn.as_ref().unwrap().server.id,
                     body.entity_id,
@@ -112,6 +114,10 @@ pub async fn handle_client_login_packet(
             PacketLatest::PlayClientPluginMessage(_body) => {
                 //..
                 *next_sender = PacketDirection::ServerBound;
+            }
+            PacketLatest::PlayServerPluginMessage(_body) => {
+                //..
+                *next_sender = PacketDirection::ClientBound;
             }
             PacketLatest::PlayClientSettings(body) => {
                 builder.play_client_settings(body.clone().into()).await?;

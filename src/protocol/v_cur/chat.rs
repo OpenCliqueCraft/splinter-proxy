@@ -1,6 +1,9 @@
 use craftio_rs::CraftAsyncWriter;
 
-use super::RelayPass;
+use super::{
+    PacketDestination,
+    RelayPass,
+};
 use crate::{
     chat::{
         receive_chat_message,
@@ -28,7 +31,7 @@ inventory::submit! {
                     error!("Failed to deserialize chat message: {}", e);
                 }
             }
-            *destination = None;
+            *destination = PacketDestination::None;
         }
     }))
 }

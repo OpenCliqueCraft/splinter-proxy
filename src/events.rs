@@ -1,13 +1,15 @@
-use mcproto_rs::protocol::{
-    HasPacketKind,
-    PacketErr,
-    RawPacket,
-};
-
-use crate::current::proto::{
-    Packet756 as PacketLatest,
-    Packet756Kind as PacketLatestKind,
-    RawPacket756 as RawPacketLatest,
+use crate::current::{
+    proto::{
+        Packet756 as PacketLatest,
+        Packet756Kind as PacketLatestKind,
+        RawPacket756 as RawPacketLatest,
+    },
+    protocol::{
+        HasPacketId,
+        HasPacketKind,
+        PacketErr,
+        RawPacket,
+    },
 };
 
 /// A packet that is lazily deserialized when the deserialized packet is accessed
@@ -67,6 +69,17 @@ impl<'a> LazyDeserializedPacket<'a> {
             raw_packet.kind()
         } else {
             self.de_packet.as_ref().unwrap().as_ref().unwrap().kind()
+        }
+    }
+}
+impl<'a> Clone for LazyDeserializedPacket<'a> {
+    fn clone(&self) -> LazyDeserializedPacket<'a> {
+        Self {
+            raw_packet: self
+                .raw_packet
+                .as_ref()
+                .map(|raw| RawPacketLatest::create(raw.id(), raw.data()).unwrap()),
+            de_packet: self.de_packet.clone(),
         }
     }
 }

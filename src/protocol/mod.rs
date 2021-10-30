@@ -5,7 +5,10 @@ use std::{
         SocketAddr,
         TcpStream,
     },
-    sync::Arc,
+    sync::{
+        atomic::Ordering,
+        Arc,
+    },
 };
 
 use async_compat::Compat;
@@ -107,11 +110,11 @@ impl SplinterClient {
         server_conn: Arc<SplinterServerConnection>,
         client: Arc<SplinterClient>,
     ) -> anyhow::Result<()> {
-        let server = Arc::clone(&server_conn.server);
+        let server = server_conn.server.clone();
         let sender = PacketDirection::ClientBound;
         loop {
             // server->proxy->client
-            if !**self.alive.load() || !**server_conn.alive.load() {
+            if !self.alive.load(Ordering::Relaxed) || !server_conn.alive.load(Ordering::Relaxed) {
                 break;
             }
             let active_server = client.active_server.load();
@@ -120,11 +123,11 @@ impl SplinterClient {
                 Ok(Some(())) => {}
                 Ok(None) => break, // connection closed
                 Err(e) => {
-                    error!("Failed to handle packet from server: {}", e);
+                    error!("Failed to handle packet from server: {:?}", e);
                 }
             }
         }
-        server_conn.alive.store(Arc::new(false));
+        server_conn.alive.store(false, Ordering::Relaxed);
         debug!(
             "Server connection between {} and server id {} closed",
             self.name, server.id
@@ -139,7 +142,7 @@ impl SplinterClient {
         let sender = PacketDirection::ServerBound;
         loop {
             // client->proxy->server
-            if !**self.alive.load() {
+            if !self.alive.load(Ordering::Relaxed) {
                 break;
             }
             match v_cur::handle_client_packet(&proxy, self, &mut client_reader, &sender).await {
@@ -154,7 +157,7 @@ impl SplinterClient {
             }
         }
         proxy.players.write().await.remove(&self.name);
-        self.alive.store(Arc::new(false));
+        self.alive.store(false, Ordering::Relaxed);
         info!("Client \"{}\" connection closed", self.name);
         Ok(())
     }

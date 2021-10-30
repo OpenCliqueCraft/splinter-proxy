@@ -1,10 +1,12 @@
 use std::{
     net::SocketAddr,
-    sync::Arc,
+    sync::{
+        atomic::AtomicBool,
+        Arc,
+    },
 };
 
 use anyhow::Context;
-use arc_swap::ArcSwap;
 use craftio_rs::CraftIo;
 use futures_lite::future;
 use mcproto_rs::{
@@ -84,8 +86,10 @@ impl<'a> ClientBuilder<'a> {
         let mut server_conn = SplinterServerConnection {
             writer: Mutex::new(server_writer),
             reader: Mutex::new(server_reader),
-            server: Arc::clone(&server),
-            alive: ArcSwap::new(Arc::new(true)),
+            server: (*server).clone(),
+            alive: AtomicBool::new(true),
+            eid: -1,
+            uuid: UUID4::from(0u128),
         };
         info!(
             "Connection for client \"{}\" initiated with {}",

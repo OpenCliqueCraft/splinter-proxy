@@ -1,14 +1,18 @@
 use std::{
-    collections::{
-        HashMap,
-        HashSet,
-    },
+    collections::HashSet,
     iter::FromIterator,
     net::{
         SocketAddr,
         TcpStream,
     },
-    sync::Arc,
+    sync::{
+        atomic::{
+            AtomicBool,
+            AtomicI8,
+            Ordering,
+        },
+        Arc,
+    },
 };
 
 use anyhow::Context;
@@ -57,15 +61,15 @@ use crate::{
 pub struct SplinterClient {
     pub name: String,
     pub writer: Mutex<AsyncCraftWriter>,
-    pub alive: ArcSwap<bool>,
+    pub alive: AtomicBool,
     pub uuid: UUID4,
     pub settings: ArcSwap<ClientSettings>,
     pub active_server: ArcSwap<SplinterServerConnection>,
-    pub dummy_servers: Mutex<HashMap<u64, Arc<SplinterServerConnection>>>,
+    pub dummy_servers: ArcSwap<Vec<(u64, Arc<SplinterServerConnection>)>>,
     pub proxy: Arc<SplinterProxy>,
     pub last_keep_alive: Mutex<u128>,
 
-    pub held_slot: ArcSwap<i8>,
+    pub held_slot: AtomicI8,
 }
 impl SplinterClient {
     pub fn new(
@@ -78,43 +82,88 @@ impl SplinterClient {
         Self {
             name,
             writer: Mutex::new(writer),
-            alive: ArcSwap::new(Arc::new(true)),
+            alive: AtomicBool::new(true),
             uuid,
             settings: ArcSwap::new(Arc::new(ClientSettings::default())),
             active_server: ArcSwap::new(active_server),
-            dummy_servers: Mutex::new(HashMap::new()),
+            dummy_servers: ArcSwap::new(Arc::new(Vec::new())),
             proxy,
             last_keep_alive: Mutex::new(keepalive::unix_time_millis()),
-            held_slot: ArcSwap::new(Arc::new(0)),
+            held_slot: AtomicI8::new(0),
         }
     }
     pub async fn set_alive(&self, value: bool) {
-        self.alive.store(Arc::new(value));
+        self.alive.store(value, Ordering::Relaxed);
     }
     pub fn server_id(&self) -> u64 {
         self.active_server.load().server.id
     }
     pub async fn disconnect_dummy(&self, target_id: u64) -> anyhow::Result<()> {
-        let dummy = self
-            .dummy_servers
-            .lock()
-            .await
-            .remove(&target_id)
+        let dummy_servers = &**self.dummy_servers.load();
+        let ind = dummy_servers
+            .iter()
+            .position(|v| v.0 == target_id)
             .ok_or_else(|| anyhow!("No dummy with specified target id"))?;
-        dummy.alive.store(Arc::new(false));
+        let mut new_dummy_servers = dummy_servers.clone();
+        let (_dummy_id, dummy) = new_dummy_servers.remove(ind);
+        self.dummy_servers.store(Arc::new(new_dummy_servers));
+        dummy.alive.store(false, Ordering::Relaxed);
         Ok(())
     }
+    /// takes a dummy away from the client's dummy servers and returns it
+    pub fn grab_dummy(&self, target_id: u64) -> anyhow::Result<Arc<SplinterServerConnection>> {
+        let mut res = Err(anyhow!("somehow rcu didnt run??")); // we know the following function will run once. this error should never happen, but im not sure how to do this without setting res to an initial value
+        self.dummy_servers.rcu(|servers| {
+            let ind = servers.iter().position(|v| v.0 == target_id);
+            if let Some(ind) = ind {
+                let mut new_servers = (**servers).clone();
+                res = Ok(new_servers.remove(ind).1);
+                Arc::new(new_servers)
+            } else {
+                res = Err(anyhow!("No dummy with specified target id"));
+                servers.clone()
+            }
+        });
+        return res;
+    }
+    pub fn add_dummy(&self, dummy: &Arc<SplinterServerConnection>) {
+        self.dummy_servers.rcu(|servers| {
+            let mut new_servers = (**servers).clone();
+            new_servers.push((dummy.server.id, Arc::clone(dummy)));
+            Arc::new(new_servers)
+        });
+    }
     pub async fn swap_dummy(self: &Arc<SplinterClient>, target_id: u64) -> anyhow::Result<()> {
-        let mut dummies_lock = self.dummy_servers.lock().await;
-        if let Some(dummy) = dummies_lock.remove(&target_id) {
-            let previously_active_conn = self.active_server.swap(dummy);
-            let dummy_arc_clone = Arc::clone(&previously_active_conn);
-            dummies_lock.insert(previously_active_conn.server.id, previously_active_conn);
-            watch_dummy(Arc::clone(self), dummy_arc_clone).await;
-            Ok(())
-        } else {
-            bail!("No dummy with specified target id");
-        }
+        // grab the dummy from the target id
+        let dummy = self.grab_dummy(target_id)?;
+        // remember the dummy player's eid and uuid
+        let (dummy_eid, dummy_uuid) = (dummy.eid, dummy.uuid);
+        // swap the dummy connection with the active connection
+        let previously_active_conn = self.active_server.swap(dummy);
+        // get the ampping tables
+        let mapping = &mut *self.proxy.mapping.lock().await;
+        // find the corresponding proxy-side ids
+        let (proxy_eid, proxy_uuid) = (
+            *mapping
+                .eids
+                .get_by_right(&(previously_active_conn.server.id, previously_active_conn.eid))
+                .unwrap(),
+            *mapping
+                .uuids
+                .get_by_right(&(
+                    previously_active_conn.server.id,
+                    previously_active_conn.uuid,
+                ))
+                .unwrap(),
+        );
+        // replace what the proxy side ids map to to the now active previously dummy eid and uuid
+        mapping.eids.insert(proxy_eid, (target_id, dummy_eid));
+        mapping.uuids.insert(proxy_uuid, (target_id, dummy_uuid));
+        // put the previously active connection into the dummy connections
+        self.add_dummy(&previously_active_conn);
+        // watch the now dummy previously active connection
+        watch_dummy(Arc::clone(self), previously_active_conn).await;
+        Ok(())
     }
     pub async fn connect_dummy(self: &Arc<SplinterClient>, target_id: u64) -> anyhow::Result<()> {
         let server = Arc::clone(self.proxy.servers.read().await.get(&target_id).unwrap());
@@ -126,18 +175,18 @@ impl SplinterClient {
         let mut server_conn = SplinterServerConnection {
             writer: Mutex::new(server_writer),
             reader: Mutex::new(server_reader),
-            server: Arc::clone(&server),
-            alive: ArcSwap::new(Arc::new(true)),
+            server: (*server).clone(),
+            alive: AtomicBool::new(true),
+            eid: -1,
+            uuid: UUID4::from(0u128),
         };
 
         // let mut player_position = None;
 
         v_cur::send_handshake(&mut server_conn, &self.proxy).await?;
-        debug!("sent handshake");
         server_conn.writer.get_mut().set_state(State::Login);
         server_conn.reader.get_mut().set_state(State::Login);
         v_cur::send_login_start(&mut server_conn, &self.name).await?;
-        debug!("sent login start");
         loop {
             let packet = server_conn
                 .reader
@@ -150,7 +199,6 @@ impl SplinterClient {
                     target_id
                 ),
                 Some(PacketLatest::LoginSetCompression(body)) => {
-                    debug!("received set compression");
                     let threshold = if *body.threshold > 0 {
                         Some(*body.threshold)
                     } else {
@@ -166,23 +214,23 @@ impl SplinterClient {
                         .set_compression_threshold(threshold);
                 }
                 Some(PacketLatest::LoginSuccess(body)) => {
-                    debug!("received login success");
-                    self.proxy
-                        .mapping
-                        .lock()
-                        .await
-                        .uuids
-                        .insert(self.uuid, (target_id, body.uuid));
+                    // self.proxy
+                    // .mapping
+                    // .lock()
+                    // .await
+                    // .uuids
+                    // .insert(self.uuid, (target_id, body.uuid));
+                    server_conn.uuid = body.uuid;
                     server_conn.writer.get_mut().set_state(State::Play);
                     server_conn.reader.get_mut().set_state(State::Play);
                 }
                 Some(PacketLatest::PlayJoinGame(body)) => {
-                    debug!("received join game");
-                    self.proxy
-                        .mapping
-                        .lock()
-                        .await
-                        .map_eid_server_to_proxy(target_id, body.entity_id);
+                    server_conn.eid = body.entity_id;
+                    // self.proxy
+                    // .mapping
+                    // .lock()
+                    // .await
+                    // .map_eid_server_to_proxy(target_id, body.entity_id);
                     // send brand here if wanted, but its not really necessary
                     v_cur::send_client_settings(
                         &mut server_conn,
@@ -220,10 +268,8 @@ impl SplinterClient {
                     // ignore
                 }
                 Some(PacketLatest::PlayServerPlayerPositionAndLook(body)) => {
-                    debug!("received player position and look");
                     // if player_position.is_some() {
                     v_cur::send_teleport_confirm(&mut server_conn, body.teleport_id).await?;
-                    debug!("sent teleport confirm");
                     server_conn
                         .writer
                         .get_mut()
@@ -235,12 +281,13 @@ impl SplinterClient {
                         ))
                         .await
                         .map_err(|e| anyhow!(e))?;
-                    debug!("sent player position and rotation");
                     v_cur::send_client_status(&mut server_conn, ClientStatusAction::PerformRespawn)
                         .await?;
-                    debug!("sent client status");
-                    v_cur::send_held_item_change(&mut server_conn, **self.held_slot.load()).await?;
-                    debug!("sent item held change");
+                    v_cur::send_held_item_change(
+                        &mut server_conn,
+                        self.held_slot.load(Ordering::Relaxed),
+                    )
+                    .await?;
                     break;
                     //} else {
                     //    player_position = Some(body);
@@ -265,12 +312,8 @@ impl SplinterClient {
                 None => bail!("Connection attempt to server {} closed", target_id),
             }
         }
-        debug!("dummy connection done");
         let arc_conn = Arc::new(server_conn);
-        self.dummy_servers
-            .lock()
-            .await
-            .insert(target_id, Arc::clone(&arc_conn));
+        self.add_dummy(&arc_conn);
         watch_dummy(Arc::clone(self), arc_conn).await;
         Ok(())
     }

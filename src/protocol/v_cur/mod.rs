@@ -89,6 +89,14 @@ pub async fn handle_client_status(
     Ok(())
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PacketDestination {
+    None,
+    Server(u64),
+    AllServers,
+    Client,
+}
+
 type RelayPassFn = Box<
     dyn Send
         + Sync
@@ -98,7 +106,7 @@ type RelayPassFn = Box<
             &Arc<SplinterClient>,
             &PacketDirection,
             &mut LazyDeserializedPacket,
-            &mut Option<PacketDirection>,
+            &mut PacketDestination,
         ),
 >;
 pub struct RelayPass(pub RelayPassFn);
@@ -109,7 +117,7 @@ pub async fn handle_server_packet(
     proxy: &Arc<SplinterProxy>,
     client: &Arc<SplinterClient>,
     reader: &mut AsyncCraftReader,
-    server: &Arc<SplinterServer>,
+    server: &SplinterServer,
     sender: &PacketDirection,
 ) -> anyhow::Result<Option<()>> {
     let packet_opt = reader
@@ -119,7 +127,7 @@ pub async fn handle_server_packet(
     match packet_opt {
         Some(raw_packet) => {
             let mut lazy_packet = LazyDeserializedPacket::from_raw_packet(raw_packet);
-            let mut destination = Some(*sender);
+            let mut destination = PacketDestination::Client;
             for pass in inventory::iter::<RelayPass> {
                 (pass.0)(
                     proxy,
@@ -130,11 +138,15 @@ pub async fn handle_server_packet(
                     &mut destination,
                 );
             }
-            if let Some(dir) = destination {
-                send_packet(client, &dir, lazy_packet)
-                    .await
-                    .with_context(|| format!("Sending packet {} failure", server.id))?;
-            }
+            let kind = lazy_packet.kind();
+            send_packet(client, &destination, lazy_packet)
+                .await
+                .with_context(|| {
+                    format!(
+                        "Sending packet kind {:?} for client {} to destination {:?} failure",
+                        kind, &client.name, destination
+                    )
+                })?;
             Ok(Some(()))
         }
         None => Ok(None),
@@ -154,7 +166,7 @@ pub async fn handle_client_packet(
     match packet_opt {
         Some(raw_packet) => {
             let mut lazy_packet = LazyDeserializedPacket::from_raw_packet(raw_packet);
-            let mut destination = Some(*sender);
+            let mut destination = PacketDestination::AllServers;
             for pass in inventory::iter::<RelayPass> {
                 (pass.0)(
                     proxy,
@@ -165,45 +177,68 @@ pub async fn handle_client_packet(
                     &mut destination,
                 );
             }
-            if let Some(dir) = destination {
-                send_packet(client, &dir, lazy_packet)
-                    .await
-                    .with_context(|| {
-                        format!("Sending packet from client \"{}\" failure", &client.name)
-                    })?;
-            }
+            send_packet(client, &destination, lazy_packet)
+                .await
+                .with_context(|| {
+                    format!("Sending packet from client \"{}\" failure", &client.name)
+                })?;
             Ok(Some(()))
         }
         None => Ok(None),
     }
 }
 
-async fn send_packet(
+async fn send_packet<'a>(
     client: &Arc<SplinterClient>,
-    destination: &PacketDirection,
-    lazy_packet: LazyDeserializedPacket<'_>,
+    destination: &PacketDestination,
+    lazy_packet: LazyDeserializedPacket<'a>,
 ) -> anyhow::Result<()> {
     match destination {
-        PacketDirection::ClientBound => {
+        PacketDestination::Client => {
             write_packet(&mut *client.writer.lock().await, lazy_packet)
                 .await
                 .with_context(|| {
                     format!("Failed to write packet to client \"{}\"", &client.name,)
                 })?;
         }
-        PacketDirection::ServerBound => {
-            write_packet(
-                &mut *client.active_server.load().writer.lock().await,
-                lazy_packet,
-            )
-            .await
-            .with_context(|| {
+        PacketDestination::Server(server_id) => {
+            let active_server = client.active_server.load();
+            let dummy_servers = client.dummy_servers.load();
+            let writer = &mut *(if active_server.server.id == *server_id {
+                active_server.writer.lock().await
+            } else {
+                if let Some((_id, server_conn)) =
+                    dummy_servers.iter().find(|(id, _)| *id == *server_id)
+                {
+                    server_conn.writer.lock().await
+                } else {
+                    bail!("No connected server from mapped server id");
+                }
+            });
+            write_packet(writer, lazy_packet)
+                .await
+                .with_context(|| format!("Failed to write packet to server \"{}\"", server_id))?;
+        }
+        PacketDestination::AllServers => {
+            for (server_id, server_conn) in client.dummy_servers.load().iter() {
+                let writer = &mut *server_conn.writer.lock().await;
+                write_packet(writer, lazy_packet.clone())
+                    .await
+                    .with_context(|| {
+                        format!("Failed to write packet to server \"{}\"", server_id)
+                    })?;
+            }
+            let active_server = client.active_server.load();
+            let writer = &mut *active_server.writer.lock().await;
+
+            write_packet(writer, lazy_packet).await.with_context(|| {
                 format!(
                     "Failed to write packet to server \"{}\"",
-                    client.server_id()
+                    active_server.server.id
                 )
             })?;
         }
+        PacketDestination::None => {}
     };
     Ok(())
 }
