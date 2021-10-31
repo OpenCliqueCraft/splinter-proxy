@@ -78,7 +78,7 @@ impl SplinterClient {
         writer: AsyncCraftWriter,
         active_server: Arc<SplinterServerConnection>,
     ) -> Self {
-        let uuid = mapping::uuid::uuid_from_name(&name);
+        let uuid = mapping::uuid_from_name(&name);
         Self {
             name,
             writer: Mutex::new(writer),

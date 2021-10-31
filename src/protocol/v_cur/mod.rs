@@ -14,6 +14,7 @@ use super::{
     AsyncCraftConnection,
     AsyncCraftReader,
     AsyncCraftWriter,
+    PacketDestination,
 };
 use crate::{
     client::SplinterClient,
@@ -87,14 +88,6 @@ pub async fn handle_client_status(
         }
     }
     Ok(())
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PacketDestination {
-    None,
-    Server(u64),
-    AllServers,
-    Client,
 }
 
 type RelayPassFn = Box<

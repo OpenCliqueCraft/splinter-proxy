@@ -28,7 +28,7 @@ use crate::{
         ClientSettings,
         SplinterClient,
     },
-    mapping::uuid::uuid_from_name,
+    mapping::uuid_from_name,
     protocol::v_cur,
     proxy::SplinterProxy,
     server::SplinterServerConnection,

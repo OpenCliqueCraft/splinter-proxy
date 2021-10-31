@@ -94,7 +94,7 @@ pub async fn handle_client_login_packet(
             }
             PacketLatest::PlayJoinGame(mut body) => {
                 builder.server_conn.as_mut().unwrap().eid = body.entity_id;
-                body.entity_id = builder.proxy.mapping.lock().await.map_eid_server_to_proxy(
+                body.entity_id = builder.proxy.mapping.lock().await.register_eid_mapping(
                     builder.server_conn.as_ref().unwrap().server.id,
                     body.entity_id,
                 );
