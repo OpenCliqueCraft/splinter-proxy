@@ -28,13 +28,24 @@ impl SplinterMapping {
     pub fn register_eid_mapping(&mut self, server_id: u64, server_eid: i32) -> i32 {
         let new_eid = self.eid_gen.take_id() as i32;
         self.eids.insert(new_eid, (server_id, server_eid));
-        // debug!("New mapping s->p eid {} to {}", server_eid, new_eid);
+        debug!(
+            "New mapping s->p eid ({}, {}) to {}",
+            server_id, server_eid, new_eid
+        );
         new_eid
     }
     pub fn register_uuid_mapping(&mut self, server_id: u64, server_uuid: UUID4) -> UUID4 {
-        let new_uuid = UUID4::random();
-        self.uuids.insert(new_uuid, (server_id, server_uuid));
-        new_uuid
+        if let Some(existing_uuid) = self.uuids.get_by_right(&(server_id, server_uuid)) {
+            *existing_uuid
+        } else {
+            let new_uuid = UUID4::random();
+            self.uuids.insert(new_uuid, (server_id, server_uuid));
+            debug!(
+                "New mapping s->p uuid ({}, {}) to {}",
+                server_id, server_uuid, new_uuid
+            );
+            new_uuid
+        }
     }
 }
 

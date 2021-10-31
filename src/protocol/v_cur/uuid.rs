@@ -7,12 +7,15 @@ use crate::{
     current::{
         proto::{
             EntityMetadataFieldData,
-            Packet756 as PacketLatest,
-            Packet756Kind as PacketLatestKind,
             PlayerInfoActionList,
         },
-        protocol::PacketDirection,
+        protocol::{
+            HasPacketKind,
+            PacketDirection,
+        },
         uuid::UUID4,
+        PacketLatest,
+        PacketLatestKind,
     },
     mapping::{
         SplinterMapping,
@@ -31,6 +34,7 @@ inventory::submit! {
                     }
                     SplinterMappingResult::None => {
                         *destination = PacketDestination::None;
+                        debug!("refusing to send packet of type {:?} (no uuid match)", packet);
                     }
                     _ => {}
                 }
@@ -74,7 +78,13 @@ pub fn map_uuid(
                 *uuid = map.register_uuid_mapping(server.id, *uuid);
             } else if let Some(uuid) = match packet {
                 PacketLatest::PlayBossBar(body) => Some(&mut body.uuid),
-                PacketLatest::PlayServerChatMessage(body) => Some(&mut body.sender),
+                PacketLatest::PlayServerChatMessage(body) => {
+                    if body.sender.to_u128() == 0 {
+                        None
+                    } else {
+                        Some(&mut body.sender)
+                    }
+                }
                 PacketLatest::PlayEntityMetadata(body) => {
                     let proxy_eid = body.entity_id;
                     if let Some(data) = map.entity_data.get(&proxy_eid) {
@@ -158,7 +168,8 @@ pub fn map_uuid(
                             {
                                 *mapped_id
                             } else {
-                                return SplinterMappingResult::None;
+                                map.register_uuid_mapping(server.id, modifier.uuid)
+                                // UUIDs are unique to the modifier; we are possibly either initializing the mapping or using an existing mapping
                             }
                         }
                     }

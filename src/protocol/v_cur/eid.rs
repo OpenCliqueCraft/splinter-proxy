@@ -7,12 +7,15 @@ use crate::{
     current::{
         proto::{
             EntityMetadataFieldData,
-            Packet756 as PacketLatest,
-            Packet756Kind as PacketLatestKind,
             SculkDestinationIdentifier,
         },
-        protocol::PacketDirection,
+        protocol::{
+            HasPacketKind,
+            PacketDirection,
+        },
         types::VarInt,
+        PacketLatest,
+        PacketLatestKind,
     },
     mapping::{
         EntityData,
@@ -32,6 +35,7 @@ inventory::submit! {
                     }
                     SplinterMappingResult::None => {
                         *destination = PacketDestination::None;
+                        debug!("refusing to send packet of kind {:?} (no eid mapping)", packet);
                     }
                     _ => {}
                 }
@@ -221,12 +225,20 @@ pub fn map_eid(
                         id: *body.entity_id,
                         entity_type: 111,
                     });
-                    body.entity_id = map.register_eid_mapping(server.id, *body.entity_id).into();
-                    debug!(
-                        "map player from {} to {}",
-                        entity_data.as_ref().unwrap().id,
-                        *body.entity_id
-                    );
+                    body.entity_id = if let Some(mapped_id) =
+                        map.eids.get_by_right(&(server.id, *body.entity_id))
+                    {
+                        (*mapped_id).into()
+                    } else {
+                        map.register_eid_mapping(server.id, *body.entity_id).into()
+                        // for whatever reason, server has two eids per player or something. im
+                        // not sure. this fixes it though
+                    };
+                    // debug!(
+                    // "map player from {} to {}",
+                    // entity_data.as_ref().unwrap().id,
+                    // body.entity_id
+                    // );
                     (vec![], vec![])
                 }
                 // complex
@@ -329,7 +341,10 @@ pub fn map_eid(
                         if let Some((proxy_eid, _)) =
                             map.eids.remove_by_right(&(server.id, server_eid))
                         {
-                            // debug!("destroying map s->p {} to {}", server_eid, proxy_eid);
+                            debug!(
+                                "destroying map s->p ({}, {}) to {}",
+                                server.id, server_eid, proxy_eid
+                            );
                             map.entity_data.remove(&proxy_eid);
                             map.eid_gen.return_id(proxy_eid as u64);
                         }
