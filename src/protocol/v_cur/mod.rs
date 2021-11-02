@@ -46,6 +46,7 @@ use crate::{
 };
 
 mod chat;
+mod chunk;
 mod eid;
 mod keepalive;
 mod login;
@@ -181,7 +182,7 @@ pub async fn handle_client_packet(
     }
 }
 
-async fn send_packet<'a>(
+pub async fn send_packet<'a>(
     client: &Arc<SplinterClient>,
     destination: &PacketDestination,
     lazy_packet: LazyDeserializedPacket<'a>,

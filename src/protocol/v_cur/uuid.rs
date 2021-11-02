@@ -9,10 +9,7 @@ use crate::{
             EntityMetadataFieldData,
             PlayerInfoActionList,
         },
-        protocol::{
-            HasPacketKind,
-            PacketDirection,
-        },
+        protocol::PacketDirection,
         uuid::UUID4,
         PacketLatest,
         PacketLatestKind,

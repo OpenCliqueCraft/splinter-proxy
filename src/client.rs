@@ -1,5 +1,8 @@
 use std::{
-    collections::HashSet,
+    collections::{
+        HashMap,
+        HashSet,
+    },
     iter::FromIterator,
     net::{
         SocketAddr,
@@ -58,6 +61,12 @@ use crate::{
     server::SplinterServerConnection,
 };
 
+pub struct ChunkLoadData {
+    pub received_chunkdata: bool,
+    pub received_updatelight: bool,
+    pub refcount: usize,
+}
+
 pub struct SplinterClient {
     pub name: String,
     pub writer: Mutex<AsyncCraftWriter>,
@@ -70,6 +79,7 @@ pub struct SplinterClient {
     pub last_keep_alive: Mutex<u128>,
 
     pub held_slot: AtomicI8,
+    pub known_chunks: Mutex<HashMap<(i32, i32), ChunkLoadData>>,
 }
 impl SplinterClient {
     pub fn new(
@@ -90,6 +100,7 @@ impl SplinterClient {
             proxy,
             last_keep_alive: Mutex::new(keepalive::unix_time_millis()),
             held_slot: AtomicI8::new(0),
+            known_chunks: Mutex::new(HashMap::new()),
         }
     }
     pub async fn set_alive(&self, value: bool) {
@@ -179,6 +190,7 @@ impl SplinterClient {
             alive: AtomicBool::new(true),
             eid: -1,
             uuid: UUID4::from(0u128),
+            known_chunks: Mutex::new(HashSet::new()),
         };
 
         // let mut player_position = None;

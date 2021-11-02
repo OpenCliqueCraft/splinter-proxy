@@ -9,6 +9,7 @@ use std::{
     },
 };
 
+use anyhow::Context;
 use craftio_rs::{
     CraftAsyncReader,
     CraftAsyncWriter,
@@ -25,6 +26,10 @@ use crate::{
     },
     events::LazyDeserializedPacket,
     init::SplinterSystem,
+    protocol::{
+        v_cur::send_packet,
+        PacketDestination,
+    },
     proxy::{
         ClientKickReason,
         SplinterProxy,
@@ -127,8 +132,13 @@ pub async fn watch_dummy(client: Arc<SplinterClient>, dummy_conn: Arc<SplinterSe
             };
             let mut lazy_packet = LazyDeserializedPacket::from_raw_packet(raw_packet);
             let packet_kind = lazy_packet.kind();
-            match packet_kind {
-                PacketLatestKind::PlayServerKeepAlive => match lazy_packet.packet() {
+            let mut pass_through = false;
+            if matches!(packet_kind,
+                PacketLatestKind::PlayServerKeepAlive
+                | PacketLatestKind::PlayChunkData
+                | PacketLatestKind::PlayUpdateLight
+                | PacketLatestKind::PlayUnloadChunk) {
+                match lazy_packet.packet() {
                     Ok(packet) => match packet {
                         PacketLatest::PlayServerKeepAlive(body) => {
                             let mut writer = dummy_conn.writer.lock().await;
@@ -137,10 +147,22 @@ pub async fn watch_dummy(client: Arc<SplinterClient>, dummy_conn: Arc<SplinterSe
                                 id: body.id
                             })).await {
                                 dummy_conn.alive.store(false, Ordering::Relaxed);
-                                break error!("Failed to send keep alive for dummy client between {} and server {}: {}", &client.name, dummy_conn.server.id, e);
+                                break error!("Failed to send keep alive for dummy client between {} and server {}: {:?}", &client.name, dummy_conn.server.id, e);
                             }
                         }
-                        _ => {}
+                        PacketLatest::PlayChunkData(body) => {
+                            let chunk = (body.x, body.z);
+                            pass_through = pass_through || dummy_conn.update_chunk(&*client, true, chunk).await;
+                        },
+                        PacketLatest::PlayUpdateLight(body) => {
+                            let chunk = (*body.chunk.x, *body.chunk.z);
+                            pass_through = pass_through || dummy_conn.update_chunk(&*client, false, chunk).await;
+                        },
+                        PacketLatest::PlayUnloadChunk(body) => {
+                            let chunk = (body.position.x, body.position.z);
+                            pass_through = pass_through || dummy_conn.remove_chunk(&*client, chunk).await;
+                        },
+                        _ => unreachable!(),
                     }
                     Err(e) => {
                         dummy_conn.alive.store(false, Ordering::Relaxed);
@@ -150,19 +172,22 @@ pub async fn watch_dummy(client: Arc<SplinterClient>, dummy_conn: Arc<SplinterSe
                         )
                     }
                 }
-                PacketLatestKind::PlayChunkData
-                    | PacketLatestKind::PlayUpdateLight
-                    | PacketLatestKind::PlayTimeUpdate
-                    | PacketLatestKind::PlayUnloadChunk => {
-                    // dont print this
-                }
-                _kind => {
-                    // debug!("{}-{} receive: {:?}", &client.name, dummy_conn.server.id, kind);
+                if pass_through {
+                    //debug!("passing through a {:?}", packet_kind);
+                    if let Err(e) = send_packet(&client, &PacketDestination::Client, lazy_packet)
+                        .await
+                        .with_context(|| {
+                            format!(
+                                "Failed to relay packet from {}-{} to client \"{}\"",
+                                &client.name, dummy_conn.server.id, &client.name
+                            )
+                        }) {
+                        break error!("{:?}", e);
+                    }
                 }
             }
         }
         client.grab_dummy(dummy_conn.server.id).ok();
-        // client.dummy_servers.lock().await.remove(&dummy_conn.server.id);
         debug!("Closing dummy watch on {} for server {}", &client.name, dummy_conn.server.id);
     })
     .detach()

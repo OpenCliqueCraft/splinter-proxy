@@ -1,4 +1,5 @@
 use std::{
+    collections::HashSet,
     net::SocketAddr,
     sync::{
         atomic::AtomicBool,
@@ -90,6 +91,7 @@ impl<'a> ClientBuilder<'a> {
             alive: AtomicBool::new(true),
             eid: -1,
             uuid: UUID4::from(0u128),
+            known_chunks: Mutex::new(HashSet::new()),
         };
         info!(
             "Connection for client \"{}\" initiated with {}",

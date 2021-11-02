@@ -9,10 +9,7 @@ use crate::{
             EntityMetadataFieldData,
             SculkDestinationIdentifier,
         },
-        protocol::{
-            HasPacketKind,
-            PacketDirection,
-        },
+        protocol::PacketDirection,
         types::VarInt,
         PacketLatest,
         PacketLatestKind,
