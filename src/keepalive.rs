@@ -14,6 +14,7 @@ use craftio_rs::{
     CraftAsyncReader,
     CraftAsyncWriter,
 };
+use mcproto_rs::protocol::PacketDirection;
 use smol::Timer;
 
 use crate::{
@@ -26,8 +27,15 @@ use crate::{
     },
     events::LazyDeserializedPacket,
     init::SplinterSystem,
+    mapping::SplinterMappingResult,
     protocol::{
-        v_cur::send_packet,
+        v_cur::{
+            has_eids,
+            has_uuids,
+            map_eid,
+            map_uuid,
+            send_packet,
+        },
         PacketDestination,
     },
     proxy::{
@@ -142,7 +150,7 @@ pub async fn watch_dummy(client: Arc<SplinterClient>, dummy_conn: Arc<SplinterSe
                     Ok(packet) => match packet {
                         PacketLatest::PlayServerKeepAlive(body) => {
                             let mut writer = dummy_conn.writer.lock().await;
-                            debug!("{}-{} got keep alive", &client.name, dummy_conn.server.id);
+                            //debug!("{}-{} got keep alive", &client.name, dummy_conn.server.id);
                             if let Err(e) = (*writer).write_packet_async(PacketLatest::PlayClientKeepAlive(PlayClientKeepAliveSpec {
                                 id: body.id
                             })).await {
@@ -172,18 +180,32 @@ pub async fn watch_dummy(client: Arc<SplinterClient>, dummy_conn: Arc<SplinterSe
                         )
                     }
                 }
-                if pass_through {
-                    //debug!("passing through a {:?}", packet_kind);
-                    if let Err(e) = send_packet(&client, &PacketDestination::Client, lazy_packet)
-                        .await
-                        .with_context(|| {
-                            format!(
-                                "Failed to relay packet from {}-{} to client \"{}\"",
-                                &client.name, dummy_conn.server.id, &client.name
-                            )
-                        }) {
-                        break error!("{:?}", e);
-                    }
+            }
+            if has_eids(lazy_packet.kind()) {
+                if let Ok(packet) = lazy_packet.packet() {
+                    let map = &mut *client.proxy.mapping.lock().await;
+                    pass_through = pass_through || SplinterMappingResult::Client == map_eid(map, packet, &PacketDirection::ClientBound, &dummy_conn.server);
+                }
+            }
+            if has_uuids(lazy_packet.kind()) {
+                if let Ok(packet) = lazy_packet.packet() {
+                    let map = &mut *client.proxy.mapping.lock().await;
+                    // yes, this is &&, not ||. if map uuid says no, we override anything map eid
+                    // said
+                    pass_through = pass_through && SplinterMappingResult::Client == map_uuid(map, packet, &PacketDirection::ClientBound, &dummy_conn.server);
+                }
+            }
+            if pass_through {
+                //debug!("passing through a {:?}", packet_kind);
+                if let Err(e) = send_packet(&client, &PacketDestination::Client, lazy_packet)
+                    .await
+                    .with_context(|| {
+                        format!(
+                            "Failed to relay packet from {}-{} to client \"{}\"",
+                            &client.name, dummy_conn.server.id, &client.name
+                        )
+                    }) {
+                    break error!("{:?}", e);
                 }
             }
         }

@@ -3,7 +3,6 @@ use super::{
     RelayPass,
 };
 use crate::{
-    client::SplinterClient,
     current::{
         proto::{
             EntityMetadataFieldData,
@@ -19,16 +18,18 @@ use crate::{
         SplinterMapping,
         SplinterMappingResult,
     },
+    server::SplinterServer,
 };
 
 inventory::submit! {
-    RelayPass(Box::new(|proxy, _connection, client, sender, lazy_packet, destination| {
+    RelayPass(Box::new(|proxy, connection, _client, sender, lazy_packet, destination| {
         if has_eids(lazy_packet.kind()) {
-            if let Ok(ref mut packet) = lazy_packet.packet() {
-                let mut map = smol::block_on(proxy.mapping.lock());
-                match map_eid(&*client, &mut map, packet, sender) {
+            if let Ok(packet) = lazy_packet.packet() {
+                let map = &mut *smol::block_on(proxy.mapping.lock());
+                match map_eid(map, packet, sender, &connection.server) {
                     SplinterMappingResult::Server(server_id) => {
                         *destination = PacketDestination::Server(server_id);
+                        debug!("mapping packet {:?} to server {}", lazy_packet.kind(), server_id);
                     }
                     SplinterMappingResult::None => {
                         *destination = PacketDestination::None;
@@ -82,14 +83,13 @@ pub fn has_eids(kind: PacketLatestKind) -> bool {
 }
 
 pub fn map_eid(
-    client: &SplinterClient,
     map: &mut SplinterMapping,
     packet: &mut PacketLatest,
     sender: &PacketDirection,
+    server: &SplinterServer,
 ) -> SplinterMappingResult {
     match sender {
         PacketDirection::ClientBound => {
-            let server = &client.active_server.load().server;
             let mut entity_data: Option<EntityData> = None;
             let (nums, varnums): (Vec<&mut i32>, Vec<&mut VarInt>) = match packet {
                 // TODO: is it possible to use something less intensive than a vec here?

@@ -49,6 +49,7 @@ impl SplinterMapping {
     }
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum SplinterMappingResult {
     Server(u64),
     Client,

@@ -3,7 +3,6 @@ use super::{
     RelayPass,
 };
 use crate::{
-    client::SplinterClient,
     current::{
         proto::{
             EntityMetadataFieldData,
@@ -18,14 +17,15 @@ use crate::{
         SplinterMapping,
         SplinterMappingResult,
     },
+    server::SplinterServer,
 };
 
 inventory::submit! {
-    RelayPass(Box::new(|proxy, _connection, client, sender, lazy_packet, destination| {
+    RelayPass(Box::new(|proxy, connection, _client, sender, lazy_packet, destination| {
         if has_uuids(lazy_packet.kind()) {
-            if let Ok(ref mut packet) = lazy_packet.packet() {
-                let mut map = smol::block_on(proxy.mapping.lock());
-                match map_uuid(&*client, &mut *map, packet, sender) {
+            if let Ok(packet) = lazy_packet.packet() {
+                let map = &mut *smol::block_on(proxy.mapping.lock());
+                match map_uuid(map, packet, sender, &connection.server) {
                     SplinterMappingResult::Server(server_id) => {
                         *destination = PacketDestination::Server(server_id);
                     }
@@ -57,14 +57,13 @@ pub fn has_uuids(kind: PacketLatestKind) -> bool {
 }
 
 pub fn map_uuid(
-    client: &SplinterClient,
     map: &mut SplinterMapping,
     packet: &mut PacketLatest,
     sender: &PacketDirection,
+    server: &SplinterServer,
 ) -> SplinterMappingResult {
     match sender {
         PacketDirection::ClientBound => {
-            let server = &client.active_server.load().server;
             if let Some(uuid) = match packet {
                 PacketLatest::PlaySpawnEntity(body) => Some(&mut body.object_uuid),
                 PacketLatest::PlaySpawnLivingEntity(body) => Some(&mut body.entity_uuid),
@@ -172,7 +171,7 @@ pub fn map_uuid(
                     }
                     None
                 }
-                _ => unreachable!(),
+                _ => panic!("how did we get here? {:?}", packet), // unreachable!(),
             } {
                 *uuid = if let Some(mapped_id) = map.uuids.get_by_right(&(server.id, *uuid)) {
                     *mapped_id
