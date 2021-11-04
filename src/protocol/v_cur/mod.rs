@@ -14,6 +14,7 @@ use super::{
     AsyncCraftConnection,
     AsyncCraftReader,
     AsyncCraftWriter,
+    PacketDestination,
 };
 use crate::{
     client::SplinterClient,
@@ -45,6 +46,7 @@ use crate::{
 };
 
 mod chat;
+mod chunk;
 mod eid;
 mod keepalive;
 mod login;
@@ -87,14 +89,6 @@ pub async fn handle_client_status(
         }
     }
     Ok(())
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PacketDestination {
-    None,
-    Server(u64),
-    AllServers,
-    Client,
 }
 
 type RelayPassFn = Box<
@@ -188,7 +182,7 @@ pub async fn handle_client_packet(
     }
 }
 
-async fn send_packet<'a>(
+pub async fn send_packet<'a>(
     client: &Arc<SplinterClient>,
     destination: &PacketDestination,
     lazy_packet: LazyDeserializedPacket<'a>,

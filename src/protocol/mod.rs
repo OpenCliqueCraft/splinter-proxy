@@ -81,6 +81,14 @@ fn load_json_id_name_pairs(data: impl AsRef<str>) -> Vec<(i32, String)> {
     list
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PacketDestination {
+    None,
+    Server(u64),
+    AllServers,
+    Client,
+}
+
 pub async fn handle_handshake(
     mut conn: AsyncCraftConnection,
     addr: SocketAddr,

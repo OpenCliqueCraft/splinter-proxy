@@ -88,14 +88,31 @@ pub async fn handle_client_login_packet(
                     builder.uuid.unwrap(),
                     (builder.server_conn.as_ref().unwrap().server.id, body.uuid),
                 );
-                // body.uuid = builder.uuid.unwrap();
+                debug!(
+                    "player uuid ({}, {}) -> {}",
+                    builder.server_conn.as_ref().unwrap().server.id,
+                    body.uuid,
+                    builder.uuid.unwrap()
+                );
+                // body.uuid = builder.uuid.unwrap(); // we're not relaying
                 builder.login_success(client_conn_reader).await?;
                 *next_sender = PacketDirection::ClientBound;
             }
             PacketLatest::PlayJoinGame(mut body) => {
                 builder.server_conn.as_mut().unwrap().eid = body.entity_id;
-                body.entity_id = builder.proxy.mapping.lock().await.map_eid_server_to_proxy(
-                    builder.server_conn.as_ref().unwrap().server.id,
+                let map = &mut *builder.proxy.mapping.lock().await;
+                let server_id = builder.server_conn.as_ref().unwrap().server.id;
+                body.entity_id = if let Some(existing_id) =
+                    map.eids.get_by_right(&(server_id, body.entity_id))
+                {
+                    *existing_id
+                } else {
+                    map.register_eid_mapping(server_id, body.entity_id)
+                };
+                debug!(
+                    "player eid ({}, {}) -> {}",
+                    server_id,
+                    builder.server_conn.as_ref().unwrap().eid,
                     body.entity_id,
                 );
                 builder
