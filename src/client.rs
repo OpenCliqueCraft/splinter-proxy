@@ -80,6 +80,7 @@ pub struct SplinterClient {
 
     pub held_slot: AtomicI8,
     pub known_chunks: Mutex<HashMap<(i32, i32), ChunkLoadData>>,
+    pub known_eids: Mutex<HashSet<i32>>,
 }
 impl SplinterClient {
     pub fn new(
@@ -101,6 +102,7 @@ impl SplinterClient {
             last_keep_alive: Mutex::new(keepalive::unix_time_millis()),
             held_slot: AtomicI8::new(0),
             known_chunks: Mutex::new(HashMap::new()),
+            known_eids: Mutex::new(HashSet::new()),
         }
     }
     pub async fn set_alive(&self, value: bool) {
@@ -148,28 +150,29 @@ impl SplinterClient {
         // grab the dummy from the target id
         let dummy = self.grab_dummy(target_id)?;
         // remember the dummy player's eid and uuid
-        let (dummy_eid, dummy_uuid) = (dummy.eid, dummy.uuid);
+        // let (dummy_eid, dummy_uuid) = (dummy.eid, dummy.uuid);
+        let dummy_eid = dummy.eid;
         // swap the dummy connection with the active connection
         let previously_active_conn = self.active_server.swap(dummy);
         // get the ampping tables
         let mapping = &mut *self.proxy.mapping.lock().await;
         // find the corresponding proxy-side ids
-        let (proxy_eid, proxy_uuid) = (
-            *mapping
-                .eids
-                .get_by_right(&(previously_active_conn.server.id, previously_active_conn.eid))
-                .unwrap(),
-            *mapping
-                .uuids
-                .get_by_right(&(
-                    previously_active_conn.server.id,
-                    previously_active_conn.uuid,
-                ))
-                .unwrap(),
-        );
+        // let (proxy_eid, proxy_uuid) = (
+        let proxy_eid = *mapping
+            .eids
+            .get_by_right(&(previously_active_conn.server.id, previously_active_conn.eid))
+            .unwrap();
+        //    *mapping
+        // .uuids
+        // .get_by_right(&(
+        // previously_active_conn.server.id,
+        // previously_active_conn.uuid,
+        // ))
+        // .unwrap(),
+        // );
         // replace what the proxy side ids map to to the now active previously dummy eid and uuid
         mapping.eids.insert(proxy_eid, (target_id, dummy_eid));
-        mapping.uuids.insert(proxy_uuid, (target_id, dummy_uuid));
+        // mapping.uuids.insert(proxy_uuid, (target_id, dummy_uuid));
         // put the previously active connection into the dummy connections
         self.add_dummy(&previously_active_conn);
         // watch the now dummy previously active connection

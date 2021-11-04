@@ -84,16 +84,16 @@ pub async fn handle_client_login_packet(
             }
             PacketLatest::LoginSuccess(body) => {
                 builder.server_conn.as_mut().unwrap().uuid = body.uuid;
-                builder.proxy.mapping.lock().await.uuids.insert(
-                    builder.uuid.unwrap(),
-                    (builder.server_conn.as_ref().unwrap().server.id, body.uuid),
-                );
-                debug!(
-                    "player uuid ({}, {}) -> {}",
-                    builder.server_conn.as_ref().unwrap().server.id,
-                    body.uuid,
-                    builder.uuid.unwrap()
-                );
+                // builder.proxy.mapping.lock().await.uuids.insert(
+                // builder.uuid.unwrap(),
+                // (builder.server_conn.as_ref().unwrap().server.id, body.uuid),
+                // );
+                // debug!(
+                // "player uuid ({}, {}) -> {}",
+                // builder.server_conn.as_ref().unwrap().server.id,
+                // body.uuid,
+                // builder.uuid.unwrap()
+                // );
                 // body.uuid = builder.uuid.unwrap(); // we're not relaying
                 builder.login_success(client_conn_reader).await?;
                 *next_sender = PacketDirection::ClientBound;

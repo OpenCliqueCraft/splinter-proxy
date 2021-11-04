@@ -31,9 +31,7 @@ use crate::{
     protocol::{
         v_cur::{
             has_eids,
-            has_uuids,
             map_eid,
-            map_uuid,
             send_packet,
         },
         PacketDestination,
@@ -184,17 +182,17 @@ pub async fn watch_dummy(client: Arc<SplinterClient>, dummy_conn: Arc<SplinterSe
             if has_eids(lazy_packet.kind()) {
                 if let Ok(packet) = lazy_packet.packet() {
                     let map = &mut *client.proxy.mapping.lock().await;
-                    pass_through = pass_through || SplinterMappingResult::Client == map_eid(map, packet, &PacketDirection::ClientBound, &dummy_conn.server);
+                    pass_through = pass_through || SplinterMappingResult::Client == map_eid(&*client, map, packet, &PacketDirection::ClientBound, &dummy_conn.server);
                 }
             }
-            if has_uuids(lazy_packet.kind()) {
+            /*if has_uuids(lazy_packet.kind()) {
                 if let Ok(packet) = lazy_packet.packet() {
                     let map = &mut *client.proxy.mapping.lock().await;
                     // yes, this is &&, not ||. if map uuid says no, we override anything map eid
                     // said
                     pass_through = pass_through && SplinterMappingResult::Client == map_uuid(map, packet, &PacketDirection::ClientBound, &dummy_conn.server);
                 }
-            }
+            }*/
             if pass_through {
                 //debug!("passing through a {:?}", packet_kind);
                 if let Err(e) = send_packet(&client, &PacketDestination::Client, lazy_packet)
