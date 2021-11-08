@@ -52,13 +52,11 @@ mod keepalive;
 mod login;
 mod sync;
 mod tags;
-mod uuid;
 pub use chat::*;
 pub use eid::*;
 pub use login::*;
 pub use sync::*;
 pub use tags::*;
-pub use uuid::*;
 
 pub async fn handle_client_status(
     mut conn: AsyncCraftConnection,
@@ -133,6 +131,7 @@ pub async fn handle_server_packet(
                 );
             }
             let kind = lazy_packet.kind();
+            // debug!("got packet of type {:?}", kind);
             send_packet(client, &destination, lazy_packet)
                 .await
                 .with_context(|| {

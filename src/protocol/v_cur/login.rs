@@ -1,5 +1,6 @@
 use std::{
     collections::HashSet,
+    str,
     sync::Arc,
 };
 
@@ -29,6 +30,7 @@ use crate::{
             LoginStartSpec,
             LoginSuccessSpec,
             PlayClientHeldItemChangeSpec,
+            PlayClientPluginMessageSpec,
             PlayClientSettingsSpec,
             PlayClientStatusSpec,
             PlayServerPluginMessageSpec,
@@ -42,6 +44,7 @@ use crate::{
         RawPacketLatest,
     },
     protocol::{
+        plugin,
         AsyncCraftWriter,
         ClientBuilder,
         Tags,
@@ -84,16 +87,16 @@ pub async fn handle_client_login_packet(
             }
             PacketLatest::LoginSuccess(body) => {
                 builder.server_conn.as_mut().unwrap().uuid = body.uuid;
-                builder.proxy.mapping.lock().await.uuids.insert(
-                    builder.uuid.unwrap(),
-                    (builder.server_conn.as_ref().unwrap().server.id, body.uuid),
-                );
-                debug!(
-                    "player uuid ({}, {}) -> {}",
-                    builder.server_conn.as_ref().unwrap().server.id,
-                    body.uuid,
-                    builder.uuid.unwrap()
-                );
+                // builder.proxy.mapping.lock().await.uuids.insert(
+                // builder.uuid.unwrap(),
+                // (builder.server_conn.as_ref().unwrap().server.id, body.uuid),
+                // );
+                // debug!(
+                // "player uuid ({}, {}) -> {}",
+                // builder.server_conn.as_ref().unwrap().server.id,
+                // body.uuid,
+                // builder.uuid.unwrap()
+                // );
                 // body.uuid = builder.uuid.unwrap(); // we're not relaying
                 builder.login_success(client_conn_reader).await?;
                 *next_sender = PacketDirection::ClientBound;
@@ -132,17 +135,26 @@ pub async fn handle_client_login_packet(
                 //..
                 *next_sender = PacketDirection::ServerBound;
             }
-            PacketLatest::PlayServerPluginMessage(_body) => {
-                //..
+            PacketLatest::PlayServerPluginMessage(body) => {
+                // we need to register the plugin channel so that spigot thinks its okay to send
+                // through it
+                if body.channel == "minecraft:register" {
+                    if let Ok("splinter:splinter") =
+                        str::from_utf8(&body.data[0..body.data.len() - 1])
+                    {
+                        builder.server_conn.as_mut().unwrap().writer.get_mut().write_packet_async(PacketLatest::PlayClientPluginMessage(PlayClientPluginMessageSpec {
+                            channel: "minecraft:register".into(),
+                            data: ["splinter:splinter".as_bytes(), &[0]].concat().into(),
+                        })).await.with_context(|| { format!("failed to respond to splinter plugin register message for \"{}\"", builder.name.as_ref().unwrap()) })?;
+                    }
+                }
                 *next_sender = PacketDirection::ClientBound;
             }
             PacketLatest::PlayClientSettings(body) => {
                 builder.play_client_settings(body.clone().into()).await?;
                 *next_sender = PacketDirection::ClientBound;
             }
-            packet
-            @
-            (PacketLatest::PlayServerDifficulty(_)
+            packet @ (PacketLatest::PlayServerDifficulty(_)
             | PacketLatest::PlayServerPlayerAbilities(_)
             | PacketLatest::PlayDeclareRecipes(_)
             | PacketLatest::PlayServerHeldItemChange(_)) => {
@@ -306,6 +318,23 @@ pub async fn send_held_item_change(
         ))
         .await
         .map_err(|e| e.into())
+}
+
+pub async fn send_position_set(
+    writer: &mut AsyncCraftWriter,
+    x: f64,
+    y: f64,
+    z: f64,
+) -> anyhow::Result<()> {
+    writer
+        .write_packet_async(PacketLatest::PlayClientPluginMessage(
+            PlayClientPluginMessageSpec {
+                channel: "splinter:splinter".into(),
+                data: plugin::position_set(x, y, z).into(),
+            },
+        ))
+        .await
+        .map_err(|e| anyhow!(e))
 }
 
 impl From<ClientChatMode> for ChatMode {

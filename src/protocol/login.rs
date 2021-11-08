@@ -62,7 +62,6 @@ impl<'a> ClientBuilder<'a> {
         }
     }
     pub async fn login_start(&mut self, name: impl AsRef<str>) -> anyhow::Result<()> {
-        // debug!("login start");
         self.name = Some(name.as_ref().to_owned());
         self.uuid = Some(uuid_from_name(name));
         info!(
@@ -117,11 +116,9 @@ impl<'a> ClientBuilder<'a> {
                 )
             })?;
         self.server_conn = Some(server_conn);
-        // debug!("login start end");
         Ok(())
     }
     pub fn login_set_compression(&mut self, threshold: i32) {
-        // debug!("login set compression");
         let threshold = if threshold > 0 { Some(threshold) } else { None };
         let conn = self.server_conn.as_mut().unwrap();
         conn.writer.get_mut().set_compression_threshold(threshold);
@@ -131,7 +128,6 @@ impl<'a> ClientBuilder<'a> {
         &mut self,
         client_conn_reader: &mut impl CraftIo,
     ) -> anyhow::Result<()> {
-        // debug!("login success");
         if let Some(threshold) = self.proxy.config.compression_threshold {
             v_cur::send_set_compression(&mut self.client_writer, threshold)
                 .await
@@ -162,11 +158,9 @@ impl<'a> ClientBuilder<'a> {
         let conn = self.server_conn.as_mut().unwrap();
         conn.writer.get_mut().set_state(State::Play);
         conn.reader.get_mut().set_state(State::Play);
-        // debug!("login success end");
         Ok(())
     }
     pub async fn play_join_game(&mut self) -> anyhow::Result<()> {
-        // debug!("play join game");
         const MAX_BRAND_SIZE: usize = 128;
         let brand = if self.proxy.config.brand.len() >= MAX_BRAND_SIZE {
             &self.proxy.config.brand[0..MAX_BRAND_SIZE]

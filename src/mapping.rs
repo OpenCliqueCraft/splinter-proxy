@@ -10,7 +10,6 @@ use bimap::BiHashMap;
 use mcproto_rs::uuid::UUID4;
 
 pub struct SplinterMapping {
-    pub uuids: BiHashMap<UUID4, (u64, UUID4)>,
     pub eids: BiHashMap<i32, (u64, i32)>,
     pub entity_data: HashMap<i32, EntityData>,
     pub eid_gen: IdGenerator,
@@ -19,7 +18,6 @@ pub struct SplinterMapping {
 impl SplinterMapping {
     pub fn new() -> Self {
         Self {
-            uuids: BiHashMap::new(),
             eids: BiHashMap::new(),
             eid_gen: IdGenerator::new(),
             entity_data: HashMap::new(),
@@ -33,19 +31,6 @@ impl SplinterMapping {
             server_id, server_eid, new_eid
         );
         new_eid
-    }
-    pub fn register_uuid_mapping(&mut self, server_id: u64, server_uuid: UUID4) -> UUID4 {
-        if let Some(existing_uuid) = self.uuids.get_by_right(&(server_id, server_uuid)) {
-            *existing_uuid
-        } else {
-            let new_uuid = UUID4::random();
-            self.uuids.insert(new_uuid, (server_id, server_uuid));
-            debug!(
-                "New mapping s->p uuid ({}, {}) to {}",
-                server_id, server_uuid, new_uuid
-            );
-            new_uuid
-        }
     }
 }
 

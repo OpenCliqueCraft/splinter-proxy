@@ -20,7 +20,10 @@ use smol::Timer;
 use crate::{
     client::SplinterClient,
     current::{
-        proto::PlayClientKeepAliveSpec,
+        proto::{
+            PlayClientKeepAliveSpec,
+            PlayTeleportConfirmSpec,
+        },
         PacketLatest,
         PacketLatestKind,
         RawPacketLatest,
@@ -31,10 +34,9 @@ use crate::{
     protocol::{
         v_cur::{
             has_eids,
-            has_uuids,
             map_eid,
-            map_uuid,
             send_packet,
+            send_position_set,
         },
         PacketDestination,
     },
@@ -145,12 +147,13 @@ pub async fn watch_dummy(client: Arc<SplinterClient>, dummy_conn: Arc<SplinterSe
                 PacketLatestKind::PlayServerKeepAlive
                 | PacketLatestKind::PlayChunkData
                 | PacketLatestKind::PlayUpdateLight
-                | PacketLatestKind::PlayUnloadChunk) {
+                | PacketLatestKind::PlayUnloadChunk
+                | PacketLatestKind::PlayTeleportConfirm
+                | PacketLatestKind::PlayServerPlayerPositionAndLook) {
                 match lazy_packet.packet() {
                     Ok(packet) => match packet {
                         PacketLatest::PlayServerKeepAlive(body) => {
                             let mut writer = dummy_conn.writer.lock().await;
-                            //debug!("{}-{} got keep alive", &client.name, dummy_conn.server.id);
                             if let Err(e) = (*writer).write_packet_async(PacketLatest::PlayClientKeepAlive(PlayClientKeepAliveSpec {
                                 id: body.id
                             })).await {
@@ -170,6 +173,32 @@ pub async fn watch_dummy(client: Arc<SplinterClient>, dummy_conn: Arc<SplinterSe
                             let chunk = (body.position.x, body.position.z);
                             pass_through = pass_through || dummy_conn.remove_chunk(&*client, chunk).await;
                         },
+                        PacketLatest::PlayServerPlayerPositionAndLook(body) => {
+                            debug!("Desynchronization! {}-{} asked to teleport!", &client.name, dummy_conn.server.id);
+                            let writer = &mut *dummy_conn.writer.lock().await;
+                            if let Err(e) = writer.write_packet_async(PacketLatest::PlayTeleportConfirm(PlayTeleportConfirmSpec {
+                                teleport_id: body.teleport_id,
+                            })).await {
+                                dummy_conn.alive.store(false, Ordering::Relaxed);
+                                break error!("Failed to respond to dummy teleport request for {}-{}: {:?}", &client.name, dummy_conn.server.id, e);
+                            }
+                            // if the position the server wants us to go to is farther than where
+                            // we actually should be, then send a position set to the plugin
+
+                            // as a note here, this only handles when the provided teleportation
+                            // request has an absolute position. TODO: relative position
+                            if body.flags.0 == 0 {
+                                let tpos = body.location.position;
+                                let ppos = &client.position.load().as_ref().unwrap();
+                                const MAX_DIST: f64 = 15.;
+                                if (tpos.x - ppos.x).abs() > MAX_DIST || (tpos.y - ppos.y).abs() > MAX_DIST || (tpos.z - ppos.z).abs() > MAX_DIST {
+                                    if let Err(e) = send_position_set(writer, ppos.x, ppos.y, ppos.z).await {
+                                        dummy_conn.alive.store(false, Ordering::Relaxed);
+                                        break error!("Failed to send position set to dummy {}-{}: {:?}", &client.name, dummy_conn.server.id, e);
+                                    }
+                                }
+                            }
+                        },
                         _ => unreachable!(),
                     }
                     Err(e) => {
@@ -184,19 +213,10 @@ pub async fn watch_dummy(client: Arc<SplinterClient>, dummy_conn: Arc<SplinterSe
             if has_eids(lazy_packet.kind()) {
                 if let Ok(packet) = lazy_packet.packet() {
                     let map = &mut *client.proxy.mapping.lock().await;
-                    pass_through = pass_through || SplinterMappingResult::Client == map_eid(map, packet, &PacketDirection::ClientBound, &dummy_conn.server);
-                }
-            }
-            if has_uuids(lazy_packet.kind()) {
-                if let Ok(packet) = lazy_packet.packet() {
-                    let map = &mut *client.proxy.mapping.lock().await;
-                    // yes, this is &&, not ||. if map uuid says no, we override anything map eid
-                    // said
-                    pass_through = pass_through && SplinterMappingResult::Client == map_uuid(map, packet, &PacketDirection::ClientBound, &dummy_conn.server);
+                    pass_through = pass_through || SplinterMappingResult::Client == map_eid(&*client, map, packet, &PacketDirection::ClientBound, &dummy_conn.server);
                 }
             }
             if pass_through {
-                //debug!("passing through a {:?}", packet_kind);
                 if let Err(e) = send_packet(&client, &PacketDestination::Client, lazy_packet)
                     .await
                     .with_context(|| {

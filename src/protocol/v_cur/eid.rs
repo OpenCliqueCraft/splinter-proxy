@@ -3,6 +3,7 @@ use super::{
     RelayPass,
 };
 use crate::{
+    client::SplinterClient,
     current::{
         proto::{
             EntityMetadataFieldData,
@@ -22,18 +23,18 @@ use crate::{
 };
 
 inventory::submit! {
-    RelayPass(Box::new(|proxy, connection, _client, sender, lazy_packet, destination| {
+    RelayPass(Box::new(|proxy, connection, client, sender, lazy_packet, destination| {
         if has_eids(lazy_packet.kind()) {
             if let Ok(packet) = lazy_packet.packet() {
                 let map = &mut *smol::block_on(proxy.mapping.lock());
-                match map_eid(map, packet, sender, &connection.server) {
+                match map_eid(&*client, map, packet, sender, &connection.server) {
                     SplinterMappingResult::Server(server_id) => {
                         *destination = PacketDestination::Server(server_id);
-                        debug!("mapping packet {:?} to server {}", lazy_packet.kind(), server_id);
+                        //debug!("mapping packet {:?} to server {}", lazy_packet.kind(), server_id);
                     }
                     SplinterMappingResult::None => {
                         *destination = PacketDestination::None;
-                        debug!("refusing to send packet of kind {:?} (no eid mapping)", packet);
+                        //debug!("refusing to send packet of kind {:?} (no eid mapping)", packet);
                     }
                     _ => {}
                 }
@@ -83,6 +84,7 @@ pub fn has_eids(kind: PacketLatestKind) -> bool {
 }
 
 pub fn map_eid(
+    client: &SplinterClient,
     map: &mut SplinterMapping,
     packet: &mut PacketLatest,
     sender: &PacketDirection,
@@ -179,6 +181,7 @@ pub fn map_eid(
                                         map.eids.get_by_right(&(server.id, body.data - 1))
                                     {
                                         body.data = mapped_id + 1;
+                                        smol::block_on(client.known_eids.lock()).insert(*mapped_id);
                                     } else {
                                         return SplinterMappingResult::None;
                                     }
@@ -198,7 +201,9 @@ pub fn map_eid(
                         id: *body.entity_id,
                         entity_type: 25,
                     });
-                    body.entity_id = map.register_eid_mapping(server.id, *body.entity_id).into();
+                    let new_eid = map.register_eid_mapping(server.id, *body.entity_id);
+                    smol::block_on(client.known_eids.lock()).insert(new_eid);
+                    body.entity_id = new_eid.into();
                     (vec![], vec![])
                 }
                 PacketLatest::PlaySpawnLivingEntity(body) => {
@@ -206,7 +211,9 @@ pub fn map_eid(
                         id: *body.entity_id,
                         entity_type: *body.entity_type,
                     });
-                    body.entity_id = map.register_eid_mapping(server.id, *body.entity_id).into();
+                    let new_eid = map.register_eid_mapping(server.id, *body.entity_id);
+                    smol::block_on(client.known_eids.lock()).insert(new_eid);
+                    body.entity_id = new_eid.into();
                     (vec![], vec![])
                 }
                 PacketLatest::PlaySpawnPainting(body) => {
@@ -214,7 +221,9 @@ pub fn map_eid(
                         id: *body.entity_id,
                         entity_type: 60,
                     });
-                    body.entity_id = map.register_eid_mapping(server.id, *body.entity_id).into();
+                    let new_eid = map.register_eid_mapping(server.id, *body.entity_id);
+                    smol::block_on(client.known_eids.lock()).insert(new_eid);
+                    body.entity_id = new_eid.into();
                     (vec![], vec![])
                 }
                 PacketLatest::PlaySpawnPlayer(body) => {
@@ -222,20 +231,17 @@ pub fn map_eid(
                         id: *body.entity_id,
                         entity_type: 111,
                     });
-                    body.entity_id = if let Some(mapped_id) =
+                    let new_eid = if let Some(mapped_id) =
                         map.eids.get_by_right(&(server.id, *body.entity_id))
                     {
-                        (*mapped_id).into()
+                        *mapped_id
                     } else {
-                        map.register_eid_mapping(server.id, *body.entity_id).into()
+                        map.register_eid_mapping(server.id, *body.entity_id)
                         // for whatever reason, server has two eids per player or something. im
                         // not sure. this fixes it though
                     };
-                    // debug!(
-                    // "map player from {} to {}",
-                    // entity_data.as_ref().unwrap().id,
-                    // body.entity_id
-                    // );
+                    smol::block_on(client.known_eids.lock()).insert(new_eid);
+                    body.entity_id = new_eid.into();
                     (vec![], vec![])
                 }
                 // complex
@@ -248,6 +254,7 @@ pub fn map_eid(
                     } else {
                         return SplinterMappingResult::None;
                     };
+                    smol::block_on(client.known_eids.lock()).insert(proxy_eid);
                     body.entity_id = proxy_eid.into();
                     if let Some(data) = map.entity_data.get(&proxy_eid) {
                         match data.entity_type {
@@ -261,6 +268,8 @@ pub fn map_eid(
                                         if let Some(mapped_id) =
                                             map.eids.get_by_right(&(server.id, found_id - 1))
                                         {
+                                            smol::block_on(client.known_eids.lock())
+                                                .insert(*mapped_id);
                                             *id = (mapped_id + 1).into();
                                         } else {
                                             return SplinterMappingResult::None;
@@ -278,6 +287,8 @@ pub fn map_eid(
                                         if let Some(mapped_id) =
                                             map.eids.get_by_right(&(server.id, found_id - 1))
                                         {
+                                            smol::block_on(client.known_eids.lock())
+                                                .insert(*mapped_id);
                                             *id = (mapped_id + 1).into();
                                         } else {
                                             return SplinterMappingResult::None;
@@ -296,6 +307,8 @@ pub fn map_eid(
                                             if let Some(mapped_id) =
                                                 map.eids.get_by_right(&(server.id, found_id - 1))
                                             {
+                                                smol::block_on(client.known_eids.lock())
+                                                    .insert(*mapped_id);
                                                 *id = (mapped_id + 1).into(); // docs dont say + 1, but Im assuming that is the case here
                                             } else {
                                                 return SplinterMappingResult::None;
@@ -314,6 +327,8 @@ pub fn map_eid(
                                         if let Some(mapped_id) =
                                             map.eids.get_by_right(&(server.id, found_id - 1))
                                         {
+                                            smol::block_on(client.known_eids.lock())
+                                                .insert(*mapped_id);
                                             *id = (mapped_id + 1).into(); // docs dont say +1, same as above
                                         } else {
                                             return SplinterMappingResult::None;
@@ -329,22 +344,12 @@ pub fn map_eid(
                 PacketLatest::PlayDestroyEntities(ref mut body) => {
                     for eid in body.entity_ids.iter_mut() {
                         // since we're removing the id from the mapping table here, we have to map them here as well
-                        let server_eid = **eid;
                         *eid = if let Some(mapped_id) = map.eids.get_by_right(&(server.id, **eid)) {
+                            smol::block_on(client.known_eids.lock()).remove(mapped_id);
                             (*mapped_id).into()
                         } else {
                             return SplinterMappingResult::None;
                         };
-                        if let Some((proxy_eid, _)) =
-                            map.eids.remove_by_right(&(server.id, server_eid))
-                        {
-                            debug!(
-                                "destroying map s->p ({}, {}) to {}",
-                                server.id, server_eid, proxy_eid
-                            );
-                            map.entity_data.remove(&proxy_eid);
-                            map.eid_gen.return_id(proxy_eid as u64);
-                        }
                     }
                     (vec![], vec![])
                 }
