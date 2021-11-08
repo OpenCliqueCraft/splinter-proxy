@@ -20,7 +20,10 @@ use smol::Timer;
 use crate::{
     client::SplinterClient,
     current::{
-        proto::PlayClientKeepAliveSpec,
+        proto::{
+            PlayClientKeepAliveSpec,
+            PlayTeleportConfirmSpec,
+        },
         PacketLatest,
         PacketLatestKind,
         RawPacketLatest,
@@ -33,6 +36,7 @@ use crate::{
             has_eids,
             map_eid,
             send_packet,
+            send_position_set,
         },
         PacketDestination,
     },
@@ -125,6 +129,7 @@ pub async fn watch_dummy(client: Arc<SplinterClient>, dummy_conn: Arc<SplinterSe
                 break debug!("dummy conn {} no longer alive", dummy_conn.server.id);
             }
             let mut lock = dummy_conn.reader.lock().await;
+            //let packet_read_result = smol::future::or(lock.read_raw_packet_async::<RawPacketLatest>().await
             let raw_packet = match lock.read_raw_packet_async::<RawPacketLatest>().await {
                 Ok(Some(packet)) => packet,
                 Ok(None) => {
@@ -143,7 +148,9 @@ pub async fn watch_dummy(client: Arc<SplinterClient>, dummy_conn: Arc<SplinterSe
                 PacketLatestKind::PlayServerKeepAlive
                 | PacketLatestKind::PlayChunkData
                 | PacketLatestKind::PlayUpdateLight
-                | PacketLatestKind::PlayUnloadChunk) {
+                | PacketLatestKind::PlayUnloadChunk
+                | PacketLatestKind::PlayTeleportConfirm
+                | PacketLatestKind::PlayServerPlayerPositionAndLook) {
                 match lazy_packet.packet() {
                     Ok(packet) => match packet {
                         PacketLatest::PlayServerKeepAlive(body) => {
@@ -168,6 +175,34 @@ pub async fn watch_dummy(client: Arc<SplinterClient>, dummy_conn: Arc<SplinterSe
                             let chunk = (body.position.x, body.position.z);
                             pass_through = pass_through || dummy_conn.remove_chunk(&*client, chunk).await;
                         },
+                        PacketLatest::PlayServerPlayerPositionAndLook(body) => {
+                            debug!("Desynchronization! {}-{} asked to teleport!", &client.name, dummy_conn.server.id);
+                            let writer = &mut *dummy_conn.writer.lock().await;
+                            if let Err(e) = writer.write_packet_async(PacketLatest::PlayTeleportConfirm(PlayTeleportConfirmSpec {
+                                teleport_id: body.teleport_id,
+                            })).await {
+                                dummy_conn.alive.store(false, Ordering::Relaxed);
+                                break error!("Failed to respond to dummy teleport request for {}-{}: {:?}", &client.name, dummy_conn.server.id, e);
+                            }
+                            // if the position the server wants us to go to is farther than where
+                            // we actually should be, then send a position set to the plugin
+                            // get dist
+                            if body.flags.0 == 0 {
+                                debug!("lucky us.. got an absolute position request");
+                                let tpos = body.location.position;
+                                let ppos = &client.position.load().as_ref().unwrap();
+                                const MAX_DIST: f64 = 15.;
+                                debug!("comparison (t: {:?}, p: {:?})", &tpos, &ppos);
+                                if (tpos.x - ppos.x).abs() > MAX_DIST || (tpos.y - ppos.y).abs() > MAX_DIST || (tpos.z - ppos.z).abs() > MAX_DIST {
+                                    debug!("too far!");
+                                    if let Err(e) = send_position_set(writer, ppos.x, ppos.y, ppos.z).await {
+                                        dummy_conn.alive.store(false, Ordering::Relaxed);
+                                        break error!("Failed to send position set to dummy {}-{}: {:?}", &client.name, dummy_conn.server.id, e);
+                                    }
+                                    debug!("sent position set");
+                                }
+                            }
+                        },
                         _ => unreachable!(),
                     }
                     Err(e) => {
@@ -178,6 +213,9 @@ pub async fn watch_dummy(client: Arc<SplinterClient>, dummy_conn: Arc<SplinterSe
                         )
                     }
                 }
+            }
+            else {
+                debug!("{}-{}: {:?}", &client.name, dummy_conn.server.id, packet_kind);
             }
             if has_eids(lazy_packet.kind()) {
                 if let Ok(packet) = lazy_packet.packet() {

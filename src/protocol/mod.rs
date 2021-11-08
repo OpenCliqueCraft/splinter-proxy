@@ -38,6 +38,7 @@ use crate::{
 mod login;
 pub mod v_cur;
 pub use login::*;
+pub mod plugin;
 
 pub type AsyncCraftConnection =
     CraftConnection<Compat<AsyncArc<Async<TcpStream>>>, Compat<AsyncArc<Async<TcpStream>>>>;

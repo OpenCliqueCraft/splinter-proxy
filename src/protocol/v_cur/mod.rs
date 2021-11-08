@@ -133,6 +133,7 @@ pub async fn handle_server_packet(
                 );
             }
             let kind = lazy_packet.kind();
+            // debug!("got packet of type {:?}", kind);
             send_packet(client, &destination, lazy_packet)
                 .await
                 .with_context(|| {

@@ -43,6 +43,7 @@ use crate::{
             PacketDirection,
             State,
         },
+        types::Vec3,
         uuid::UUID4,
         PacketLatest,
         RawPacketLatest,
@@ -81,6 +82,7 @@ pub struct SplinterClient {
     pub held_slot: AtomicI8,
     pub known_chunks: Mutex<HashMap<(i32, i32), ChunkLoadData>>,
     pub known_eids: Mutex<HashSet<i32>>,
+    pub position: ArcSwap<Option<Vec3<f64>>>,
 }
 impl SplinterClient {
     pub fn new(
@@ -103,6 +105,7 @@ impl SplinterClient {
             held_slot: AtomicI8::new(0),
             known_chunks: Mutex::new(HashMap::new()),
             known_eids: Mutex::new(HashSet::new()),
+            position: ArcSwap::new(Arc::new(None)),
         }
     }
     pub async fn set_alive(&self, value: bool) {
