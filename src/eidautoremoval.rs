@@ -24,7 +24,6 @@ async fn eid_auto_removal_loop(proxy: Arc<SplinterProxy>) -> anyhow::Result<()> 
     smol::spawn(async move {
         loop {
             Timer::after(Duration::from_secs(15)).await;
-            // debug!("Gathering all eid mappings in use");
             let mut total_used_eids = HashSet::<i32>::new();
             for (_, cl) in proxy.players.read().await.iter() {
                 let cl_known_eids = cl.known_eids.lock().await;

@@ -242,11 +242,6 @@ pub fn map_eid(
                     };
                     smol::block_on(client.known_eids.lock()).insert(new_eid);
                     body.entity_id = new_eid.into();
-                    // debug!(
-                    // "map player from {} to {}",
-                    // entity_data.as_ref().unwrap().id,
-                    // body.entity_id
-                    // );
                     (vec![], vec![])
                 }
                 // complex
@@ -349,23 +344,12 @@ pub fn map_eid(
                 PacketLatest::PlayDestroyEntities(ref mut body) => {
                     for eid in body.entity_ids.iter_mut() {
                         // since we're removing the id from the mapping table here, we have to map them here as well
-                        //let server_eid = **eid;
                         *eid = if let Some(mapped_id) = map.eids.get_by_right(&(server.id, **eid)) {
                             smol::block_on(client.known_eids.lock()).remove(mapped_id);
                             (*mapped_id).into()
                         } else {
                             return SplinterMappingResult::None;
                         };
-                        /*if let Some((proxy_eid, _)) =
-                            map.eids.remove_by_right(&(server.id, server_eid))
-                        {
-                            /*debug!(
-                                "destroying map s->p ({}, {}) to {}",
-                                server.id, server_eid, proxy_eid
-                            );*/
-                            //map.entity_data.remove(&proxy_eid);
-                            //map.eid_gen.return_id(proxy_eid as u64);
-                        }*/
                     }
                     (vec![], vec![])
                 }

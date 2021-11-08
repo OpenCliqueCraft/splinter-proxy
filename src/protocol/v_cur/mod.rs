@@ -52,13 +52,11 @@ mod keepalive;
 mod login;
 mod sync;
 mod tags;
-// mod uuid;
 pub use chat::*;
 pub use eid::*;
 pub use login::*;
 pub use sync::*;
 pub use tags::*;
-// pub use uuid::*;
 
 pub async fn handle_client_status(
     mut conn: AsyncCraftConnection,

@@ -40,6 +40,8 @@ inventory::submit! {
         }),
     }
 }
+
+// command for testing manually sending the position set packet
 inventory::submit! {
     SplinterCommand {
         name: "send",
