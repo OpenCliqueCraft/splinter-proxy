@@ -1,38 +1,31 @@
 use std::{
     collections::HashSet,
     net::SocketAddr,
-    sync::{
-        atomic::AtomicBool,
-        Arc,
-    },
+    sync::{atomic::AtomicBool, Arc},
 };
 
 use anyhow::Context;
 use craftio_rs::CraftIo;
 use futures_lite::future;
-use mcproto_rs::{
-    protocol::{
-        PacketDirection,
-        State,
-    },
-    uuid::UUID4,
-};
 use smol::lock::Mutex;
 
-use super::{
-    AsyncCraftConnection,
-    AsyncCraftWriter,
-    Tags,
-};
+use super::{v_cur::send_position_set, AsyncCraftConnection, AsyncCraftWriter, Tags};
 use crate::{
-    client::{
-        ClientSettings,
-        SplinterClient,
+    protocol::{
+        current::{
+            protocol::{PacketDirection, State},
+            types::Vec3,
+            uuid::UUID4,
+        },
+        v_cur,
     },
-    mapping::uuid_from_name,
-    protocol::v_cur,
-    proxy::SplinterProxy,
-    server::SplinterServerConnection,
+    proxy::{
+        client::{ClientSettings, SplinterClient},
+        mapping::uuid_from_name,
+        server::SplinterServerConnection,
+        SplinterProxy,
+    },
+    systems::{playersave::DEFAULT_SPAWN_POSITION, zoning::world_to_chunk_position},
 };
 
 pub struct ClientBuilder<'a> {
@@ -43,6 +36,7 @@ pub struct ClientBuilder<'a> {
     pub client_writer: AsyncCraftWriter,
     pub server_conn: Option<SplinterServerConnection>,
     pub settings: Option<ClientSettings>,
+    pub position: Option<Vec3<f64>>,
 }
 
 impl<'a> ClientBuilder<'a> {
@@ -59,6 +53,7 @@ impl<'a> ClientBuilder<'a> {
             server_conn: None,
             client_writer,
             settings: None,
+            position: None,
         }
     }
     pub async fn login_start(&mut self, name: impl AsRef<str>) -> anyhow::Result<()> {
@@ -69,7 +64,23 @@ impl<'a> ClientBuilder<'a> {
             self.name.as_ref().unwrap(),
             self.client_addr
         );
-        let active_server_id = 0u64; // todo: zoning
+        let player_data_lock = self.proxy.player_data.lock().await;
+        let plinfo = player_data_lock.players.get(self.uuid.as_ref().unwrap());
+        let spawn_pos = if let Some(plinfo) = plinfo {
+            self.position = Some((plinfo.x, plinfo.y, plinfo.z).into());
+            (plinfo.x, plinfo.z)
+        } else {
+            self.position = Some(DEFAULT_SPAWN_POSITION.into());
+            (DEFAULT_SPAWN_POSITION.0, DEFAULT_SPAWN_POSITION.2)
+        };
+        debug!("spawn position is {:?}", self.position.as_ref().unwrap());
+        let active_server_id = *self
+            .proxy
+            .zoner
+            .zones_in_point(world_to_chunk_position(spawn_pos))
+            .get(0)
+            .unwrap_or(&0);
+        debug!("player should join server {}", active_server_id);
         let server = Arc::clone(
             self.proxy
                 .servers
@@ -216,12 +227,13 @@ impl<'a> ClientBuilder<'a> {
         }
         Ok(())
     }
-    pub fn build(self) -> SplinterClient {
+    pub async fn build(self) -> SplinterClient {
         let cl = SplinterClient::new(
             Arc::clone(self.proxy),
             self.name.unwrap(),
             self.client_writer,
             Arc::new(self.server_conn.unwrap()),
+            self.position.unwrap(),
         );
         cl.settings.store(Arc::new(self.settings.unwrap()));
         cl
@@ -257,7 +269,16 @@ pub async fn handle_client_login(
             );
         }
     }
-    let client = client_builder.build();
+    let client = client_builder.build().await;
+    let cl_pos = &**client.position.load();
+    send_position_set(
+        &mut *client.active_server.load().writer.lock().await,
+        cl_pos.x,
+        cl_pos.y,
+        cl_pos.z,
+    )
+    .await
+    .with_context(|| "Sending position set")?;
     let client_arc = Arc::new(client);
     proxy
         .players
@@ -268,11 +289,7 @@ pub async fn handle_client_login(
     // move on to relay loop
     let (res_a, res_b) = future::zip(
         client_arc.handle_client_relay(Arc::clone(&proxy), client_conn_reader),
-        client_arc.handle_server_relay(
-            proxy,
-            Arc::clone(&*client_arc.active_server.load()),
-            Arc::clone(&client_arc),
-        ),
+        client_arc.handle_server_relay(proxy, Arc::clone(&client_arc)),
     )
     .await;
     res_a?;

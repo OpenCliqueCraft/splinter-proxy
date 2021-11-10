@@ -3,12 +3,12 @@ use std::sync::Arc;
 use anyhow::Context;
 
 use crate::{
-    commands::{
+    protocol::v_cur::send_position_set,
+    proxy::SplinterProxy,
+    systems::commands::{
         CommandSender,
         SplinterCommand,
     },
-    protocol::v_cur::send_position_set,
-    proxy::SplinterProxy,
 };
 
 inventory::submit! {

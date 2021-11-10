@@ -497,7 +497,7 @@ dependencies = [
 [[package]]
 name = "mcproto-rs"
 version = "0.2.0"
-source = "git+https://github.com/regenerativep/mcproto-rs?rev=7cc3a46ab0c89f13829e2345242f264f8a937471#7cc3a46ab0c89f13829e2345242f264f8a937471"
+source = "git+https://github.com/regenerativep/mcproto-rs?rev=c76a1c67c5fd91bbd78b9c46471160321ca12af0#c76a1c67c5fd91bbd78b9c46471160321ca12af0"
 dependencies = [
  "base64 0.12.3",
  "rand 0.7.3",
@@ -819,6 +819,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9def91fd1e018fe007022791f865d0ccc9b3a0d5001e01aabb8b40e46000afb5"
 
 [[package]]
+name = "smallvec"
+version = "1.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1ecab6c735a6bb4139c0caafd0cc3635748bbb3acf4550e8138122099251f309"
+
+[[package]]
 name = "smol"
 version = "1.2.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -869,6 +875,7 @@ dependencies = [
  "ron",
  "serde",
  "simplelog",
+ "smallvec",
  "smol",
 ]
 

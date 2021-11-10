@@ -7,8 +7,8 @@ use std::{
 use smol::Timer;
 
 use crate::{
-    init::SplinterSystem,
     proxy::SplinterProxy,
+    systems::SplinterSystem,
 };
 
 inventory::submit! {

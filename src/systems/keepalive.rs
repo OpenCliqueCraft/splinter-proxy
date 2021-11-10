@@ -1,50 +1,30 @@
 use std::{
-    sync::{
-        atomic::Ordering,
-        Arc,
-    },
-    time::{
-        Duration,
-        SystemTime,
-    },
+    convert::TryFrom,
+    sync::{atomic::Ordering, Arc},
+    time::{Duration, SystemTime},
 };
 
 use anyhow::Context;
-use craftio_rs::{
-    CraftAsyncReader,
-    CraftAsyncWriter,
-};
+use craftio_rs::{CraftAsyncReader, CraftAsyncWriter};
 use mcproto_rs::protocol::PacketDirection;
 use smol::Timer;
 
 use crate::{
-    client::SplinterClient,
-    current::{
-        proto::{
-            PlayClientKeepAliveSpec,
-            PlayTeleportConfirmSpec,
-        },
-        PacketLatest,
-        PacketLatestKind,
-        RawPacketLatest,
-    },
-    events::LazyDeserializedPacket,
-    init::SplinterSystem,
-    mapping::SplinterMappingResult,
     protocol::{
-        v_cur::{
-            has_eids,
-            map_eid,
-            send_packet,
-            send_position_set,
+        current::{
+            proto::{PlayClientKeepAliveSpec, PlayTeleportConfirmSpec},
+            types::Vec3,
+            PacketLatest, PacketLatestKind, RawPacketLatest,
         },
+        events::LazyDeserializedPacket,
+        v_cur::{has_eids, map_eid, send_packet, send_position_set},
         PacketDestination,
     },
     proxy::{
-        ClientKickReason,
-        SplinterProxy,
+        client::SplinterClient, mapping::SplinterMappingResult, server::SplinterServerConnection,
+        ClientKickReason, SplinterProxy,
     },
-    server::SplinterServerConnection,
+    systems::SplinterSystem,
 };
 inventory::submit! {
     SplinterSystem {
@@ -148,8 +128,8 @@ pub async fn watch_dummy(client: Arc<SplinterClient>, dummy_conn: Arc<SplinterSe
                 | PacketLatestKind::PlayChunkData
                 | PacketLatestKind::PlayUpdateLight
                 | PacketLatestKind::PlayUnloadChunk
-                | PacketLatestKind::PlayTeleportConfirm
-                | PacketLatestKind::PlayServerPlayerPositionAndLook) {
+                | PacketLatestKind::PlayServerPlayerPositionAndLook
+                | PacketLatestKind::PlayServerPluginMessage) {
                 match lazy_packet.packet() {
                     Ok(packet) => match packet {
                         PacketLatest::PlayServerKeepAlive(body) => {
@@ -189,7 +169,7 @@ pub async fn watch_dummy(client: Arc<SplinterClient>, dummy_conn: Arc<SplinterSe
                             // request has an absolute position. TODO: relative position
                             if body.flags.0 == 0 {
                                 let tpos = body.location.position;
-                                let ppos = &client.position.load().as_ref().unwrap();
+                                let ppos = &**client.position.load();
                                 const MAX_DIST: f64 = 15.;
                                 if (tpos.x - ppos.x).abs() > MAX_DIST || (tpos.y - ppos.y).abs() > MAX_DIST || (tpos.z - ppos.z).abs() > MAX_DIST {
                                     if let Err(e) = send_position_set(writer, ppos.x, ppos.y, ppos.z).await {
@@ -198,6 +178,23 @@ pub async fn watch_dummy(client: Arc<SplinterClient>, dummy_conn: Arc<SplinterSe
                                     }
                                 }
                             }
+                        },
+                        PacketLatest::PlayServerPluginMessage(_body) => {
+                            // if body.channel == "splinter:splinter" {
+                            //     match body.data.data[0] {
+                            //         0 => {
+                            //             if body.data.data.len() == 1+8+8+8 {
+                            //                 let x = f64::from_be_bytes(TryFrom::try_from(&body.data.data[1..9]).unwrap());
+                            //                 let y = f64::from_be_bytes(TryFrom::try_from(&body.data.data[9..17]).unwrap());
+                            //                 let z = f64::from_be_bytes(TryFrom::try_from(&body.data.data[17..]).unwrap());
+                            //                 let pos = Vec3 { x, y, z };
+                            //                 debug!("dummy {}-{} got position: {:?}", &client.name, dummy_conn.server.id, &pos);
+                            //                 // client.position.store(Arc::new(pos));
+                            //             }
+                            //         },
+                            //         _ => {},
+                            //     }
+                            // }
                         },
                         _ => unreachable!(),
                     }

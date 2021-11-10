@@ -1,44 +1,31 @@
 use std::{
     collections::HashMap,
     fmt::Debug,
-    net::{
-        SocketAddr,
-        TcpStream,
-    },
-    sync::{
-        atomic::Ordering,
-        Arc,
-    },
+    net::{SocketAddr, TcpStream},
+    sync::{atomic::Ordering, Arc},
 };
 
 use async_compat::Compat;
 use async_dup::Arc as AsyncArc;
-use craftio_rs::{
-    CraftAsyncReader,
-    CraftConnection,
-    CraftReader,
-    CraftWriter,
-};
+use craftio_rs::{CraftAsyncReader, CraftConnection, CraftReader, CraftWriter};
 use smol::Async;
 
 use crate::{
-    client::SplinterClient,
-    current::{
-        proto::{
-            HandshakeNextState,
-            Packet756 as PacketLatest,
-            RawPacket756 as RawPacketLatest,
-        },
-        protocol::PacketDirection,
-    },
-    proxy::SplinterProxy,
-    server::SplinterServerConnection,
+    proxy::{client::SplinterClient, server::SplinterServerConnection, SplinterProxy},
+    systems::playersave::PlInfoPlayer,
 };
 
+pub mod current;
+pub mod events;
 mod login;
 pub mod v_cur;
 pub use login::*;
 pub mod plugin;
+
+use current::{
+    proto::{HandshakeNextState, Packet756 as PacketLatest, RawPacket756 as RawPacketLatest},
+    protocol::PacketDirection,
+};
 
 pub type AsyncCraftConnection =
     CraftConnection<Compat<AsyncArc<Async<TcpStream>>>, Compat<AsyncArc<Async<TcpStream>>>>;
@@ -116,30 +103,49 @@ impl SplinterClient {
     pub async fn handle_server_relay(
         self: &Arc<Self>,
         proxy: Arc<SplinterProxy>,
-        server_conn: Arc<SplinterServerConnection>,
         client: Arc<SplinterClient>,
     ) -> anyhow::Result<()> {
-        let server = server_conn.server.clone();
         let sender = PacketDirection::ClientBound;
+        let mut active_server;
         loop {
             // server->proxy->client
-            if !self.alive.load(Ordering::Relaxed) || !server_conn.alive.load(Ordering::Relaxed) {
+            active_server = client.active_server.load();
+            if !self.alive.load(Ordering::Relaxed) || !active_server.alive.load(Ordering::Relaxed) {
+                // debug!(
+                //     "active connection for {}, {} no longer alive (client state: {:?})",
+                //     active_server.server.id,
+                //     &client.name,
+                //     self.alive.load(Ordering::Relaxed),
+                // );
                 break;
             }
-            let active_server = client.active_server.load();
             let server_reader: &mut AsyncCraftReader = &mut *active_server.reader.lock().await;
-            match v_cur::handle_server_packet(&proxy, self, server_reader, &server, &sender).await {
+            match v_cur::handle_server_packet(
+                &proxy,
+                self,
+                server_reader,
+                &active_server.server,
+                &sender,
+            )
+            .await
+            {
                 Ok(Some(())) => {}
-                Ok(None) => break, // connection closed
+                Ok(None) => {
+                    // debug!(
+                    //     "server {} closed connection with {}!",
+                    //     active_server.server.id, &client.name
+                    // );
+                    break;
+                }
                 Err(e) => {
                     error!("Failed to handle packet from server: {:?}", e);
                 }
             }
         }
-        server_conn.alive.store(false, Ordering::Relaxed);
+        active_server.alive.store(false, Ordering::Relaxed);
         debug!(
             "Server connection between {} and server id {} closed",
-            self.name, server.id
+            self.name, active_server.server.id
         );
         Ok(())
     }
@@ -167,7 +173,17 @@ impl SplinterClient {
         }
         proxy.players.write().await.remove(&self.name);
         self.alive.store(false, Ordering::Relaxed);
-        info!("Client \"{}\" connection closed", self.name);
+        let pos = &**self.position.load();
+        self.proxy.player_data.lock().await.players.insert(
+            self.uuid,
+            PlInfoPlayer {
+                x: pos.x,
+                y: pos.y,
+                z: pos.z,
+                name: self.name.clone(),
+            },
+        );
+        info!("Client \"{}\" connection closed", &self.name);
         Ok(())
     }
 }

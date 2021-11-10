@@ -1,17 +1,11 @@
 use std::{
     convert::TryFrom,
-    sync::{
-        atomic::Ordering,
-        Arc,
-    },
+    sync::{atomic::Ordering, Arc},
 };
 
 use super::RelayPass;
-use crate::current::{
-    proto::{
-        Packet756 as PacketLatest,
-        Packet756Kind as PacketLatestKind,
-    },
+use crate::protocol::current::{
+    proto::{Packet756 as PacketLatest, Packet756Kind as PacketLatestKind},
     types::Vec3,
 };
 
@@ -38,8 +32,8 @@ inventory::submit! {
                                     let y = f64::from_be_bytes(TryFrom::try_from(&body.data.data[9..17]).unwrap());
                                     let z = f64::from_be_bytes(TryFrom::try_from(&body.data.data[17..]).unwrap());
                                     let pos = Vec3 { x, y, z };
-                                    debug!("player pos {:?}", pos);
-                                    client.position.store(Arc::new(Some(pos)));
+                                    // debug!("got position: {:?}", &pos);
+                                    client.position.store(Arc::new(pos));
                                 }
                             },
                             _ => {},

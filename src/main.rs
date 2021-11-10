@@ -9,25 +9,14 @@ extern crate simplelog;
 
 use std::sync::Arc;
 
-mod chat;
-mod client;
-mod commands;
-mod config;
-mod current;
-mod eidautoremoval;
-mod events;
-mod init;
-mod keepalive;
-mod logging;
-mod mapping;
 mod protocol;
 mod proxy;
-mod server;
+mod systems;
 
-use crate::{
+use crate::proxy::{
     config::SplinterConfig,
     logging as splinter_logging,
-    proxy::SplinterProxy,
+    SplinterProxy,
 };
 
 const CONFIG_FILENAME: &str = "./config.ron";
@@ -49,7 +38,7 @@ fn main() -> anyhow::Result<()> {
     let proxy_arc = Arc::new(proxy);
     info!("Starting Splinter Proxy");
     smol::block_on(async {
-        if let Err(e) = init::init(&proxy_arc).await {
+        if let Err(e) = systems::init(&proxy_arc).await {
             bail!("Failed to start proxy: {}", e);
         }
         proxy::run(proxy_arc).await

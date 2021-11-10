@@ -1,47 +1,26 @@
-use std::{
-    net::SocketAddr,
-    sync::Arc,
-};
+use std::{net::SocketAddr, sync::Arc};
 
 use anyhow::Context;
-use craftio_rs::{
-    CraftAsyncReader,
-    CraftAsyncWriter,
-    CraftIo,
-};
+use craftio_rs::{CraftAsyncReader, CraftAsyncWriter, CraftIo};
 
-use super::{
-    AsyncCraftConnection,
-    AsyncCraftReader,
-    AsyncCraftWriter,
-    PacketDestination,
-};
+use super::{AsyncCraftConnection, AsyncCraftReader, AsyncCraftWriter, PacketDestination};
 use crate::{
-    client::SplinterClient,
-    current::{
-        proto::{
-            Packet756 as PacketLatest,
-            PlayDisconnectSpec,
-            PlayServerKeepAliveSpec,
-            RawPacket756 as RawPacketLatest,
-            StatusPongSpec,
-            StatusRequestSpec,
-            StatusResponseSpec,
+    protocol::{
+        current::{
+            proto::{
+                Packet756 as PacketLatest, PlayDisconnectSpec, PlayServerKeepAliveSpec,
+                RawPacket756 as RawPacketLatest, StatusPongSpec, StatusRequestSpec,
+                StatusResponseSpec,
+            },
+            protocol::{PacketDirection, State},
+            types::Chat,
         },
-        protocol::{
-            PacketDirection,
-            State,
-        },
-        types::Chat,
+        events::LazyDeserializedPacket,
     },
-    events::LazyDeserializedPacket,
     proxy::{
-        ClientKickReason,
-        SplinterProxy,
-    },
-    server::{
-        SplinterServer,
-        SplinterServerConnection,
+        client::SplinterClient,
+        server::{SplinterServer, SplinterServerConnection},
+        ClientKickReason, SplinterProxy,
     },
 };
 
@@ -112,6 +91,7 @@ pub async fn handle_server_packet(
     server: &SplinterServer,
     sender: &PacketDirection,
 ) -> anyhow::Result<Option<()>> {
+    // debug!("waiting for packet");
     let packet_opt = reader
         .read_raw_packet_async::<RawPacketLatest>()
         .await
@@ -273,9 +253,7 @@ impl SplinterClient {
     }
     pub async fn send_keep_alive(&self, time: u128) -> anyhow::Result<()> {
         self.write_packet(LazyDeserializedPacket::from_packet(
-            PacketLatest::PlayServerKeepAlive(PlayServerKeepAliveSpec {
-                id: time as i64,
-            }),
+            PacketLatest::PlayServerKeepAlive(PlayServerKeepAliveSpec { id: time as i64 }),
         ))
         .await
     }

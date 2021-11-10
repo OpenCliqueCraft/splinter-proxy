@@ -1,16 +1,18 @@
 use craftio_rs::CraftAsyncWriter;
 
 use crate::{
-    current::{
-        proto::{
-            Packet756 as PacketLatest,
-            Packet756Kind as PacketLatestKind,
-            PlayClientKeepAliveSpec,
+    protocol::{
+        current::{
+            proto::{
+                Packet756 as PacketLatest,
+                Packet756Kind as PacketLatestKind,
+                PlayClientKeepAliveSpec,
+            },
+            protocol::PacketDirection,
         },
-        protocol::PacketDirection,
+        v_cur,
     },
-    keepalive::unix_time_millis,
-    protocol::v_cur,
+    systems::keepalive::unix_time_millis,
 };
 
 inventory::submit! {

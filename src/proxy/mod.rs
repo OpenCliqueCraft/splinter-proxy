@@ -1,38 +1,39 @@
 use std::{
     collections::HashMap,
-    net::{
-        SocketAddr,
-        TcpListener,
-    },
+    net::{SocketAddr, TcpListener},
     str::FromStr,
     sync::{
-        atomic::{
-            AtomicBool,
-            Ordering,
-        },
+        atomic::{AtomicBool, Ordering},
         Arc,
     },
     time::Duration,
 };
 
 use smol::{
-    lock::{
-        Mutex,
-        RwLock,
-    },
-    Async,
-    Timer,
+    lock::{Mutex, RwLock},
+    Async, Timer,
 };
 
+pub mod chat;
+pub mod client;
+pub mod config;
+pub mod logging;
+pub mod mapping;
+pub mod server;
+
+use client::SplinterClient;
+use config::SplinterConfig;
+use mapping::SplinterMapping;
+use server::SplinterServer;
+
 use crate::{
-    client::{
-        self,
-        SplinterClient,
-    },
-    config::SplinterConfig,
-    mapping::SplinterMapping,
     protocol::Tags,
-    server::SplinterServer,
+    systems::{
+        playersave::{
+            load_player_data, save_player_data, PlInfo, PlInfoPlayer, PLAYER_DATA_FILENAME,
+        },
+        zoning::{Zone, Zoner},
+    },
 };
 
 pub struct SplinterProxy {
@@ -42,6 +43,9 @@ pub struct SplinterProxy {
     pub servers: RwLock<HashMap<u64, Arc<SplinterServer>>>,
     pub mapping: Mutex<SplinterMapping>,
     pub tags: Mutex<Option<Tags>>,
+
+    pub player_data: Mutex<PlInfo>,
+    pub zoner: Zoner,
 }
 
 impl SplinterProxy {
@@ -66,6 +70,31 @@ impl SplinterProxy {
             servers,
             mapping: Mutex::new(SplinterMapping::new()),
             tags: Mutex::new(None),
+            zoner: Zoner {
+                zones: vec![
+                    (
+                        0,
+                        Zone::Rectangle {
+                            x1: -4,
+                            z1: -4,
+                            x2: 4,
+                            z2: 4,
+                        },
+                    ),
+                    (
+                        1,
+                        Zone::InvertedRectangle {
+                            x1: -3,
+                            z1: -3,
+                            x2: 3,
+                            z2: 3,
+                        },
+                    ),
+                ],
+            },
+            player_data: Mutex::new(
+                load_player_data(PLAYER_DATA_FILENAME).unwrap_or(PlInfo::default()),
+            ),
         })
     }
     pub fn is_alive(&self) -> bool {
@@ -82,14 +111,48 @@ impl SplinterProxy {
             client.send_kick(reason).await?;
             client.set_alive(false).await;
             self.players.write().await.remove(&name_string);
+            let pos = &**client.position.load();
+            self.player_data.lock().await.players.insert(
+                client.uuid,
+                PlInfoPlayer {
+                    x: pos.x,
+                    y: pos.y,
+                    z: pos.z,
+                    name: client.name.clone(),
+                },
+            );
         } else {
             bail!("Failed to find client by the name \"{}\"", name_string);
         }
         Ok(())
     }
+    pub async fn shutdown(&self) {
+        let names = self
+            .players
+            .read()
+            .await
+            .iter()
+            .map(|(name, _)| name.to_owned())
+            .collect::<Vec<String>>();
+        if !names.is_empty() {
+            info!("Disconnecting clients");
+            for name in names {
+                if let Err(e) = self.kick_client(&name, ClientKickReason::Shutdown).await {
+                    error!("Error kicking player \"{}\": {}", &name, e);
+                }
+            }
+        }
+
+        if let Err(e) = save_player_data(&*self.player_data.lock().await, PLAYER_DATA_FILENAME) {
+            error!("Error saving player data: {:?}", e);
+        }
+        info!("Shutting down");
+        self.alive.store(false, Ordering::Relaxed);
+    }
 }
 
 /// A reason for a client to get kicked
+#[derive(Clone)]
 pub enum ClientKickReason {
     /// Client failed to send a keep alive packet back in time
     TimedOut,
