@@ -1,6 +1,6 @@
 # Splinter Proxy
 
-The Splinter proxy is an advanced proxy intended to allow a player to traverse the network of Splinter Minecraft servers seamlessly.
+The Splinter proxy is a proxy intended to allow a player to traverse a network of Minecraft servers seamlessly as if they were a single server running a single world.
 
 ## Splinter Project
 
@@ -11,8 +11,6 @@ Minecraft servers struggle with large numbers of players. This project would tur
 ### Building Splinter Proxy
 
 You will need Rust. You can get this through [rustup](https://rustup.rs).
-
-You need to be on the nightly branch for certain features. `rustup default nightly`
 
 Build and run through `cargo run`
 

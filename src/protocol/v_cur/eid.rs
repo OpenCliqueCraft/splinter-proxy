@@ -3,8 +3,7 @@ use super::{
     RelayPass,
 };
 use crate::{
-    client::SplinterClient,
-    current::{
+    protocol::current::{
         proto::{
             EntityMetadataFieldData,
             SculkDestinationIdentifier,
@@ -14,12 +13,15 @@ use crate::{
         PacketLatest,
         PacketLatestKind,
     },
-    mapping::{
-        EntityData,
-        SplinterMapping,
-        SplinterMappingResult,
+    proxy::{
+        client::SplinterClient,
+        mapping::{
+            EntityData,
+            SplinterMapping,
+            SplinterMappingResult,
+        },
+        server::SplinterServer,
     },
-    server::SplinterServer,
 };
 
 inventory::submit! {

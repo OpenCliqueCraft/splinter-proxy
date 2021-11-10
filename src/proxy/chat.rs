@@ -11,9 +11,11 @@ use mcproto_rs::{
 };
 
 use crate::{
-    client::SplinterClient,
-    commands::CommandSender,
-    proxy::SplinterProxy,
+    proxy::{
+        client::SplinterClient,
+        SplinterProxy,
+    },
+    systems::commands::CommandSender,
 };
 
 pub trait ToChat {

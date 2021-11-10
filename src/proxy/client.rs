@@ -1,19 +1,10 @@
 use std::{
-    collections::{
-        HashMap,
-        HashSet,
-    },
+    collections::{HashMap, HashSet},
     iter::FromIterator,
-    net::{
-        SocketAddr,
-        TcpStream,
-    },
+    net::{SocketAddr, TcpStream},
+    str,
     sync::{
-        atomic::{
-            AtomicBool,
-            AtomicI8,
-            Ordering,
-        },
+        atomic::{AtomicBool, AtomicI8, Ordering},
         Arc,
     },
 };
@@ -22,44 +13,27 @@ use anyhow::Context;
 use arc_swap::ArcSwap;
 use async_compat::CompatExt;
 use async_dup::Arc as AsyncArc;
-use craftio_rs::{
-    CraftAsyncReader,
-    CraftAsyncWriter,
-    CraftConnection,
-    CraftIo,
-};
-use smol::{
-    lock::Mutex,
-    Async,
-};
+use craftio_rs::{CraftAsyncReader, CraftAsyncWriter, CraftConnection, CraftIo};
+use smallvec::SmallVec;
+use smol::{lock::Mutex, Async};
 
 use crate::{
-    current::{
-        proto::{
-            ClientStatusAction,
-            PlayClientPlayerPositionAndRotationSpec,
-        },
-        protocol::{
-            PacketDirection,
-            State,
-        },
-        types::Vec3,
-        uuid::UUID4,
-        PacketLatest,
-        RawPacketLatest,
-    },
-    keepalive::{
-        self,
-        watch_dummy,
-    },
-    mapping,
     protocol::{
         self,
-        v_cur,
-        AsyncCraftWriter,
+        current::{
+            proto::{
+                ClientStatusAction, PlayClientPlayerPositionAndRotationSpec,
+                PlayClientPluginMessageSpec,
+            },
+            protocol::{PacketDirection, State},
+            types::Vec3,
+            uuid::UUID4,
+            PacketLatest, RawPacketLatest,
+        },
+        v_cur, AsyncCraftWriter,
     },
-    proxy::SplinterProxy,
-    server::SplinterServerConnection,
+    proxy::{mapping, server::SplinterServerConnection, SplinterProxy},
+    systems::keepalive::{self, watch_dummy},
 };
 
 pub struct ChunkLoadData {
@@ -82,7 +56,7 @@ pub struct SplinterClient {
     pub held_slot: AtomicI8,
     pub known_chunks: Mutex<HashMap<(i32, i32), ChunkLoadData>>,
     pub known_eids: Mutex<HashSet<i32>>,
-    pub position: ArcSwap<Option<Vec3<f64>>>,
+    pub position: ArcSwap<Vec3<f64>>,
 }
 impl SplinterClient {
     pub fn new(
@@ -90,6 +64,7 @@ impl SplinterClient {
         name: String,
         writer: AsyncCraftWriter,
         active_server: Arc<SplinterServerConnection>,
+        position: Vec3<f64>,
     ) -> Self {
         let uuid = mapping::uuid_from_name(&name);
         Self {
@@ -105,7 +80,7 @@ impl SplinterClient {
             held_slot: AtomicI8::new(0),
             known_chunks: Mutex::new(HashMap::new()),
             known_eids: Mutex::new(HashSet::new()),
-            position: ArcSwap::new(Arc::new(None)),
+            position: ArcSwap::new(Arc::new(position)),
         }
     }
     pub async fn set_alive(&self, value: bool) {
@@ -115,6 +90,7 @@ impl SplinterClient {
         self.active_server.load().server.id
     }
     pub async fn disconnect_dummy(&self, target_id: u64) -> anyhow::Result<()> {
+        debug!("disconecting {}-{}", &self.name, target_id);
         let dummy_servers = &**self.dummy_servers.load();
         let ind = dummy_servers
             .iter()
@@ -150,6 +126,7 @@ impl SplinterClient {
         });
     }
     pub async fn swap_dummy(self: &Arc<SplinterClient>, target_id: u64) -> anyhow::Result<()> {
+        debug!("swapping to {}-{}", &self.name, target_id);
         // grab the dummy from the target id
         let dummy = self.grab_dummy(target_id)?;
         // remember the dummy player's eid
@@ -172,6 +149,7 @@ impl SplinterClient {
         Ok(())
     }
     pub async fn connect_dummy(self: &Arc<SplinterClient>, target_id: u64) -> anyhow::Result<()> {
+        debug!("connecting {}-{}", &self.name, target_id);
         let server = Arc::clone(self.proxy.servers.read().await.get(&target_id).unwrap());
         let (server_reader, server_writer) = server
             .connect()
@@ -236,8 +214,17 @@ impl SplinterClient {
                     )
                     .await?;
                 }
-                Some(PacketLatest::PlayServerPluginMessage(_body)) => {
-                    // ignore
+                Some(PacketLatest::PlayServerPluginMessage(body)) => {
+                    if body.channel == "minecraft:register" {
+                        if let Ok("splinter:splinter") =
+                            str::from_utf8(&body.data[0..body.data.len() - 1])
+                        {
+                            server_conn.writer.get_mut().write_packet_async(PacketLatest::PlayClientPluginMessage(PlayClientPluginMessageSpec {
+                                channel: "minecraft:register".into(),
+                                data: ["splinter:splinter".as_bytes(), &[0]].concat().into(),
+                            })).await.with_context(|| { format!("failed to respond to splinter plugin register message for \"{}\"", &self.name) })?;
+                        }
+                    }
                 }
                 Some(PacketLatest::PlayServerDifficulty(_body)) => {
                     // ignore
@@ -309,6 +296,44 @@ impl SplinterClient {
         let arc_conn = Arc::new(server_conn);
         self.add_dummy(&arc_conn);
         watch_dummy(Arc::clone(self), arc_conn).await;
+        Ok(())
+    }
+    // if this fails, this probably isnt really recoverable without a lot of effort lol
+    pub async fn update_touching_servers(
+        self: &Arc<SplinterClient>,
+        servers: SmallVec<[u64; 2]>,
+    ) -> anyhow::Result<()> {
+        debug!(
+            "touching servers: [{}]",
+            servers
+                .iter()
+                .fold(String::new(), |acc, id| format!("{}, {}", acc, id))
+        );
+        let active_id = self.active_server.load().server.id;
+        let dummy_servers = &**self.dummy_servers.load();
+        for server_id in servers.iter() {
+            // if there is a server in the provided list that we are not connected to
+            if *server_id != active_id && !dummy_servers.iter().any(|(id, _)| *id == *server_id) {
+                self.connect_dummy(*server_id).await?;
+            }
+        }
+        // if our active server is not in the list
+        if !servers.iter().any(|id| *id == active_id) {
+            // we need to switch servers!
+            // get the next available server from the provided list
+            let next_server_id = *servers.get(0).unwrap();
+            self.swap_dummy(next_server_id).await?;
+            // the active server will be removed in the next step
+        }
+        // if there is a server not in the provided list that we are connected to
+        let dummy_servers = &**self.dummy_servers.load(); // dummy server list may have changed, reload it
+        for (dummy_id, _) in dummy_servers.iter() {
+            // if there is a dummy server that does not have a match in the provided list
+            if !servers.iter().any(|id| *id == *dummy_id) {
+                // we need to disconnect from it
+                self.disconnect_dummy(*dummy_id).await?;
+            }
+        }
         Ok(())
     }
 }

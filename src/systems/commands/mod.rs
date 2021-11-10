@@ -10,10 +10,12 @@ use blocking::{
 use mcproto_rs::uuid::UUID4;
 
 use crate::{
-    chat::ToChat,
-    client::SplinterClient,
-    init::SplinterSystem,
-    proxy::SplinterProxy,
+    proxy::{
+        chat::ToChat,
+        client::SplinterClient,
+        SplinterProxy,
+    },
+    systems::SplinterSystem,
 };
 
 mod kick;

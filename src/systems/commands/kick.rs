@@ -1,13 +1,13 @@
 use std::sync::Arc;
 
 use crate::{
-    commands::{
-        CommandSender,
-        SplinterCommand,
-    },
     proxy::{
         ClientKickReason,
         SplinterProxy,
+    },
+    systems::commands::{
+        CommandSender,
+        SplinterCommand,
     },
 };
 inventory::submit! {

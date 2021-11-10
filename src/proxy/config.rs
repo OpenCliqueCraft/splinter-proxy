@@ -7,22 +7,24 @@ use std::{
     path::Path,
 };
 
-use mcproto_rs::{
-    status::{
-        StatusPlayerSampleSpec,
-        StatusPlayersSpec,
-        StatusSpec,
-        StatusVersionSpec,
-    },
-    types::Chat,
-};
 use ron::ser::PrettyConfig;
 use serde::{
     Deserialize,
     Serialize,
 };
 
-use crate::proxy::SplinterProxy;
+use crate::{
+    protocol::current::{
+        status::{
+            StatusPlayerSampleSpec,
+            StatusPlayersSpec,
+            StatusSpec,
+            StatusVersionSpec,
+        },
+        types::Chat,
+    },
+    proxy::SplinterProxy,
+};
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct SplinterConfig {

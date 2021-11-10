@@ -1,50 +1,28 @@
 use std::{
-    sync::{
-        atomic::Ordering,
-        Arc,
-    },
-    time::{
-        Duration,
-        SystemTime,
-    },
+    sync::{atomic::Ordering, Arc},
+    time::{Duration, SystemTime},
 };
 
 use anyhow::Context;
-use craftio_rs::{
-    CraftAsyncReader,
-    CraftAsyncWriter,
-};
+use craftio_rs::{CraftAsyncReader, CraftAsyncWriter};
 use mcproto_rs::protocol::PacketDirection;
 use smol::Timer;
 
 use crate::{
-    client::SplinterClient,
-    current::{
-        proto::{
-            PlayClientKeepAliveSpec,
-            PlayTeleportConfirmSpec,
-        },
-        PacketLatest,
-        PacketLatestKind,
-        RawPacketLatest,
-    },
-    events::LazyDeserializedPacket,
-    init::SplinterSystem,
-    mapping::SplinterMappingResult,
     protocol::{
-        v_cur::{
-            has_eids,
-            map_eid,
-            send_packet,
-            send_position_set,
+        current::{
+            proto::{PlayClientKeepAliveSpec, PlayTeleportConfirmSpec},
+            PacketLatest, PacketLatestKind, RawPacketLatest,
         },
+        events::LazyDeserializedPacket,
+        v_cur::{has_eids, map_eid, send_packet, send_position_set},
         PacketDestination,
     },
     proxy::{
-        ClientKickReason,
-        SplinterProxy,
+        client::SplinterClient, mapping::SplinterMappingResult, server::SplinterServerConnection,
+        ClientKickReason, SplinterProxy,
     },
-    server::SplinterServerConnection,
+    systems::SplinterSystem,
 };
 inventory::submit! {
     SplinterSystem {
@@ -189,7 +167,7 @@ pub async fn watch_dummy(client: Arc<SplinterClient>, dummy_conn: Arc<SplinterSe
                             // request has an absolute position. TODO: relative position
                             if body.flags.0 == 0 {
                                 let tpos = body.location.position;
-                                let ppos = &client.position.load().as_ref().unwrap();
+                                let ppos = &**client.position.load();
                                 const MAX_DIST: f64 = 15.;
                                 if (tpos.x - ppos.x).abs() > MAX_DIST || (tpos.y - ppos.y).abs() > MAX_DIST || (tpos.z - ppos.z).abs() > MAX_DIST {
                                     if let Err(e) = send_position_set(writer, ppos.x, ppos.y, ppos.z).await {

@@ -5,20 +5,24 @@ use super::{
     RelayPass,
 };
 use crate::{
-    chat::{
-        receive_chat_message,
-        ToChat,
+    protocol::{
+        current::proto::{
+            ChatPosition,
+            Packet756 as PacketLatest,
+            Packet756Kind as PacketLatestKind,
+            PlayClientChatMessageSpec,
+            PlayServerChatMessageSpec,
+        },
+        events::LazyDeserializedPacket,
     },
-    client::SplinterClient,
-    commands::CommandSender,
-    current::proto::{
-        ChatPosition,
-        Packet756 as PacketLatest,
-        Packet756Kind as PacketLatestKind,
-        PlayClientChatMessageSpec,
-        PlayServerChatMessageSpec,
+    proxy::{
+        chat::{
+            receive_chat_message,
+            ToChat,
+        },
+        client::SplinterClient,
     },
-    events::LazyDeserializedPacket,
+    systems::commands::CommandSender,
 };
 
 inventory::submit! {

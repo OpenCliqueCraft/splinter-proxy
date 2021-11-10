@@ -6,6 +6,13 @@ use std::{
 use smol::prelude::Future;
 
 use crate::proxy::SplinterProxy;
+
+pub mod commands;
+pub mod eidautoremoval;
+pub mod keepalive;
+pub mod playersave;
+pub mod zoning;
+
 pub type SystemInitFn = Box<
     dyn Send + Sync + Fn(Arc<SplinterProxy>) -> Pin<Box<dyn Future<Output = anyhow::Result<()>>>>,
 >;

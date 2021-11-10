@@ -3,15 +3,17 @@ use super::{
     RelayPass,
 };
 use crate::{
-    client::{
-        ChunkLoadData,
-        SplinterClient,
-    },
-    current::{
+    protocol::current::{
         PacketLatest,
         PacketLatestKind,
     },
-    server::SplinterServerConnection,
+    proxy::{
+        client::{
+            ChunkLoadData,
+            SplinterClient,
+        },
+        server::SplinterServerConnection,
+    },
 };
 
 inventory::submit! {

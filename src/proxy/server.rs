@@ -16,13 +16,11 @@ use smol::{
     Async,
 };
 
-use crate::{
+use crate::protocol::{
     current::uuid::UUID4,
-    protocol::{
-        AsyncCraftConnection,
-        AsyncCraftReader,
-        AsyncCraftWriter,
-    },
+    AsyncCraftConnection,
+    AsyncCraftReader,
+    AsyncCraftWriter,
 };
 
 #[derive(Clone)]

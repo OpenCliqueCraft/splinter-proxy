@@ -1,4 +1,4 @@
-use crate::current::{
+use crate::protocol::current::{
     proto::{
         Packet756 as PacketLatest,
         Packet756Kind as PacketLatestKind,

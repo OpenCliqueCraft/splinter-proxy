@@ -5,7 +5,7 @@ use std::{
 
 use bimap::BiHashMap;
 
-use crate::{
+use crate::protocol::{
     current::{
         proto::{
             PlayTagsSpec,
@@ -18,11 +18,9 @@ use crate::{
             VarInt,
         },
     },
-    protocol::{
-        load_json_id_name_pairs,
-        TagList,
-        Tags,
-    },
+    load_json_id_name_pairs,
+    TagList,
+    Tags,
 };
 
 lazy_static! {

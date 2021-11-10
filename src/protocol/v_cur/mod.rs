@@ -17,31 +17,33 @@ use super::{
     PacketDestination,
 };
 use crate::{
-    client::SplinterClient,
-    current::{
-        proto::{
-            Packet756 as PacketLatest,
-            PlayDisconnectSpec,
-            PlayServerKeepAliveSpec,
-            RawPacket756 as RawPacketLatest,
-            StatusPongSpec,
-            StatusRequestSpec,
-            StatusResponseSpec,
+    protocol::{
+        current::{
+            proto::{
+                Packet756 as PacketLatest,
+                PlayDisconnectSpec,
+                PlayServerKeepAliveSpec,
+                RawPacket756 as RawPacketLatest,
+                StatusPongSpec,
+                StatusRequestSpec,
+                StatusResponseSpec,
+            },
+            protocol::{
+                PacketDirection,
+                State,
+            },
+            types::Chat,
         },
-        protocol::{
-            PacketDirection,
-            State,
-        },
-        types::Chat,
+        events::LazyDeserializedPacket,
     },
-    events::LazyDeserializedPacket,
     proxy::{
+        client::SplinterClient,
+        server::{
+            SplinterServer,
+            SplinterServerConnection,
+        },
         ClientKickReason,
         SplinterProxy,
-    },
-    server::{
-        SplinterServer,
-        SplinterServerConnection,
     },
 };
 
