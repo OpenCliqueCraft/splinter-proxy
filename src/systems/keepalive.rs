@@ -1,4 +1,5 @@
 use std::{
+    convert::TryFrom,
     sync::{atomic::Ordering, Arc},
     time::{Duration, SystemTime},
 };
@@ -12,6 +13,7 @@ use crate::{
     protocol::{
         current::{
             proto::{PlayClientKeepAliveSpec, PlayTeleportConfirmSpec},
+            types::Vec3,
             PacketLatest, PacketLatestKind, RawPacketLatest,
         },
         events::LazyDeserializedPacket,
@@ -126,8 +128,8 @@ pub async fn watch_dummy(client: Arc<SplinterClient>, dummy_conn: Arc<SplinterSe
                 | PacketLatestKind::PlayChunkData
                 | PacketLatestKind::PlayUpdateLight
                 | PacketLatestKind::PlayUnloadChunk
-                | PacketLatestKind::PlayTeleportConfirm
-                | PacketLatestKind::PlayServerPlayerPositionAndLook) {
+                | PacketLatestKind::PlayServerPlayerPositionAndLook
+                | PacketLatestKind::PlayServerPluginMessage) {
                 match lazy_packet.packet() {
                     Ok(packet) => match packet {
                         PacketLatest::PlayServerKeepAlive(body) => {
@@ -176,6 +178,23 @@ pub async fn watch_dummy(client: Arc<SplinterClient>, dummy_conn: Arc<SplinterSe
                                     }
                                 }
                             }
+                        },
+                        PacketLatest::PlayServerPluginMessage(_body) => {
+                            // if body.channel == "splinter:splinter" {
+                            //     match body.data.data[0] {
+                            //         0 => {
+                            //             if body.data.data.len() == 1+8+8+8 {
+                            //                 let x = f64::from_be_bytes(TryFrom::try_from(&body.data.data[1..9]).unwrap());
+                            //                 let y = f64::from_be_bytes(TryFrom::try_from(&body.data.data[9..17]).unwrap());
+                            //                 let z = f64::from_be_bytes(TryFrom::try_from(&body.data.data[17..]).unwrap());
+                            //                 let pos = Vec3 { x, y, z };
+                            //                 debug!("dummy {}-{} got position: {:?}", &client.name, dummy_conn.server.id, &pos);
+                            //                 // client.position.store(Arc::new(pos));
+                            //             }
+                            //         },
+                            //         _ => {},
+                            //     }
+                            // }
                         },
                         _ => unreachable!(),
                     }

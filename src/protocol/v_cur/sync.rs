@@ -32,6 +32,7 @@ inventory::submit! {
                                     let y = f64::from_be_bytes(TryFrom::try_from(&body.data.data[9..17]).unwrap());
                                     let z = f64::from_be_bytes(TryFrom::try_from(&body.data.data[17..]).unwrap());
                                     let pos = Vec3 { x, y, z };
+                                    // debug!("got position: {:?}", &pos);
                                     client.position.store(Arc::new(pos));
                                 }
                             },
