@@ -1,4 +1,5 @@
 /target
+servers/
 config.ron
 playerdata.ron
 latest.log
